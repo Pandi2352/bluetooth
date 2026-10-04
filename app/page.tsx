@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 
 interface BluetoothDeviceItem {
   id: string;
@@ -17,40 +17,89 @@ export default function Home() {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectedDevice, setConnectedDevice] = useState<string | null>(null);
+  const [connectionMode, setConnectionMode] = useState<"ble" | "backend" | null>(null);
 
   // 4 Button States
   const [led1On, setLed1On] = useState(false); // Pin 2 ('1' = ON, '0' = OFF)
   const [led2On, setLed2On] = useState(false); // Pin 3 ('2' = ON, '3' = OFF)
   const [lastCommand, setLastCommand] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [showPairGuide, setShowPairGuide] = useState(false);
+  const [showMobileNotice, setShowMobileNotice] = useState(false);
 
-  // Scan Bluetooth Devices from Next.js backend (NO browser popups)
-  const scanDevices = useCallback(async () => {
-    setIsScanning(true);
-    try {
-      const res = await fetch("/api/bluetooth/scan");
-      const data = await res.json();
-      if (data.success && data.devices) {
-        setDevices(data.devices);
+  // Web Bluetooth GATT characteristic reference (for mobile BLE)
+  const gattCharacteristicRef = useRef<any>(null);
+
+  // Check if running on mobile
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const mobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile/i.test(navigator.userAgent);
+      setIsMobile(mobile);
+      if (mobile) {
+        setShowMobileNotice(true);
       }
-    } catch {
-      // Ignore background scan error
-    } finally {
-      setIsScanning(false);
     }
   }, []);
 
-  useEffect(() => {
-    scanDevices();
-    const interval = setInterval(scanDevices, 4000);
-    return () => clearInterval(interval);
-  }, [scanDevices]);
+  // Web Bluetooth API Connect (Runs natively in Chrome on Android over HTTPS)
+  const handleWebBluetoothConnect = async () => {
+    if (typeof window === "undefined" || !("bluetooth" in navigator)) {
+      setStatusMessage(
+        "Web Bluetooth API not supported in this browser. Please use Chrome on Android."
+      );
+      return;
+    }
 
-  // Connect to HC-05 directly in the UI
+    try {
+      setIsConnecting(true);
+      setStatusMessage("Opening mobile Bluetooth scanner...");
+
+      // Standard Nordic UART and HM-10 BLE Service UUIDs
+      const device = await (navigator as any).bluetooth.requestDevice({
+        acceptAllDevices: true,
+        optionalServices: [
+          "0000ffe0-0000-1000-8000-00805f9b34fb", // HM-10 BLE
+          "6e400001-b5a3-f393-e0a9-e50e24dcca9e", // Nordic UART
+          "generic_access",
+        ],
+      });
+
+      setStatusMessage(`Connecting to ${device.name || "Bluetooth Device"}...`);
+      const server = await device.gatt.connect();
+
+      // Attempt to retrieve TX characteristic
+      try {
+        const service =
+          (await server.getPrimaryService("0000ffe0-0000-1000-8000-00805f9b34fb").catch(() => null)) ||
+          (await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e").catch(() => null));
+        if (service) {
+          const char =
+            (await service.getCharacteristic("0000ffe1-0000-1000-8000-00805f9b34fb").catch(() => null)) ||
+            (await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e").catch(() => null));
+          if (char) {
+            gattCharacteristicRef.current = char;
+          }
+        }
+      } catch {
+        // Fallback generic
+      }
+
+      setIsConnected(true);
+      setConnectedDevice(device.name || "Mobile Bluetooth");
+      setConnectionMode("ble");
+      setStatusMessage(`Connected via Mobile Bluetooth to ${device.name || "Device"}!`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Cancelled or failed";
+      setStatusMessage(`Bluetooth Note: ${msg}`);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  // Connect via backend API
   const handleConnectHC05 = async (targetDevice?: BluetoothDeviceItem) => {
     setIsConnecting(true);
-    setStatusMessage("Connecting to HC-05 over Bluetooth...");
+    setStatusMessage("Connecting to Bluetooth...");
 
     try {
       const portsRes = await fetch("/api/ports");
@@ -67,10 +116,7 @@ export default function Home() {
       const portToUse = targetDevice?.port || btPort?.path || portsData.devices?.[0]?.path;
 
       if (!portToUse) {
-        setStatusMessage(
-          "HC-05 is not paired with Windows yet. Click 'Pair HC-05 (PIN: 1234)' to pair it once."
-        );
-        setShowPairGuide(true);
+        setStatusMessage("No Bluetooth device detected on server. Try 'Connect Mobile Bluetooth' above.");
         setIsConnecting(false);
         return;
       }
@@ -85,11 +131,10 @@ export default function Home() {
       if (data.success) {
         setIsConnected(true);
         setConnectedDevice(targetDevice?.name || "HC-05 Bluetooth");
+        setConnectionMode("backend");
         setStatusMessage("Connected wirelessly to HC-05!");
-        setShowPairGuide(false);
       } else {
-        setStatusMessage(data.error || "Could not connect to HC-05. Please pair it first.");
-        setShowPairGuide(true);
+        setStatusMessage(data.error || "Could not connect to HC-05.");
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Connect failed";
@@ -101,32 +146,28 @@ export default function Home() {
 
   // Disconnect
   const handleDisconnect = async () => {
-    try {
-      await fetch("/api/connect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "disconnect" }),
-      });
-    } catch {
-      // Ignore
+    if (connectionMode === "ble" && gattCharacteristicRef.current) {
+      try {
+        gattCharacteristicRef.current.service.device.gatt.disconnect();
+      } catch {
+        // Ignore
+      }
+      gattCharacteristicRef.current = null;
+    } else {
+      try {
+        await fetch("/api/connect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "disconnect" }),
+        });
+      } catch {
+        // Ignore
+      }
     }
     setIsConnected(false);
     setConnectedDevice(null);
-    setStatusMessage("Disconnected from HC-05.");
-  };
-
-  // Open Windows Bluetooth Pairing Settings directly on desktop
-  const handlePairHC05 = async () => {
-    setStatusMessage("Opening Windows Bluetooth Settings... Select 'HC-05' and enter PIN: 1234");
-    setShowPairGuide(true);
-    // Direct protocol launch from browser to open Windows Bluetooth Settings
-    try {
-      window.location.href = "ms-settings:bluetooth";
-    } catch {
-      // Ignore
-    }
-    // Also trigger via backend Start-Process
-    fetch("/api/bluetooth/pair", { method: "POST" });
+    setConnectionMode(null);
+    setStatusMessage("Disconnected.");
   };
 
   // Send Remote Commands ('1', '0', '2', '3')
@@ -145,6 +186,18 @@ export default function Home() {
       setLastCommand("Sent '3' → LED 2 OFF");
     }
 
+    // If connected via Web Bluetooth on mobile
+    if (connectionMode === "ble" && gattCharacteristicRef.current) {
+      try {
+        const encoder = new TextEncoder();
+        await gattCharacteristicRef.current.writeValue(encoder.encode(cmd));
+        return;
+      } catch (err: unknown) {
+        console.warn("BLE write fallback:", err);
+      }
+    }
+
+    // Backend send
     try {
       await fetch("/api/led", {
         method: "POST",
@@ -199,11 +252,11 @@ export default function Home() {
                   />
                 </span>
                 <p className="text-xs uppercase tracking-wider font-semibold text-blue-400">
-                  Wireless Remote
+                  Live Wireless Remote
                 </p>
               </div>
               <h1 className="mt-1 text-2xl font-bold tracking-tight text-white">
-                HC-05 Bluetooth Remote
+                Bluetooth LED Remote
               </h1>
             </div>
 
@@ -219,7 +272,7 @@ export default function Home() {
             </span>
           </div>
 
-          {/* Bluetooth Connection Bar */}
+          {/* Mobile Bluetooth Action Bar */}
           <div className="mb-5 p-3.5 rounded-2xl border border-zinc-800 bg-zinc-950/70 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center">
@@ -238,36 +291,27 @@ export default function Home() {
               </div>
               <div>
                 <p className="text-xs font-semibold text-white">
-                  {isConnected ? connectedDevice : "HC-05 Bluetooth"}
+                  {isConnected ? connectedDevice : "Mobile Bluetooth"}
                 </p>
                 <p className="text-[11px] text-zinc-400">
-                  {isConnected ? "Wireless link active" : "Battery powered"}
+                  {isConnected ? "Connected to device" : "Tap Connect to pair"}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-1.5">
               {!isConnected ? (
-                <>
-                  <button
-                    onClick={() => handleConnectHC05()}
-                    disabled={isConnecting}
-                    className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow cursor-pointer disabled:opacity-50"
-                  >
-                    {isConnecting ? "Connecting..." : "Connect"}
-                  </button>
-                  <button
-                    onClick={handlePairHC05}
-                    title="Pair with PIN 1234 in Windows"
-                    className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-blue-400 text-xs font-semibold border border-zinc-700 transition cursor-pointer"
-                  >
-                    Pair HC-05
-                  </button>
-                </>
+                <button
+                  onClick={handleWebBluetoothConnect}
+                  disabled={isConnecting}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow cursor-pointer disabled:opacity-50"
+                >
+                  {isConnecting ? "Connecting..." : "Connect Bluetooth"}
+                </button>
               ) : (
                 <button
                   onClick={handleDisconnect}
-                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-rose-400 text-xs font-semibold transition cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-rose-400 text-xs font-semibold transition cursor-pointer"
                 >
                   Disconnect
                 </button>
@@ -275,25 +319,19 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Quick Pairing Helper Card (Only shows when needed or clicked) */}
-          {showPairGuide && !isConnected && (
-            <div className="mb-5 p-3.5 rounded-2xl bg-blue-950/20 border border-blue-500/30 text-xs text-zinc-300 space-y-2">
-              <div className="flex items-center justify-between text-blue-300 font-semibold">
-                <span>Pairing HC-05 to Windows (PIN: 1234)</span>
-                <button onClick={() => setShowPairGuide(false)} className="text-zinc-500 hover:text-white">✕</button>
+          {/* Mobile HC-05 Important Notice Box */}
+          {showMobileNotice && (
+            <div className="mb-5 p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/40 text-xs text-amber-200/90 space-y-1.5">
+              <div className="flex items-center justify-between font-bold text-amber-300">
+                <span>📱 Mobile Browser Bluetooth Notice</span>
+                <button onClick={() => setShowMobileNotice(false)} className="text-zinc-500 hover:text-white">✕</button>
               </div>
-              <ol className="list-decimal list-inside space-y-1 text-[11px] text-zinc-400 leading-relaxed">
-                <li>Click <span className="text-blue-300 font-medium">Add device</span> in the Windows Bluetooth window.</li>
-                <li>Choose <span className="text-white font-medium">Bluetooth</span> and select <span className="text-white font-medium">HC-05</span>.</li>
-                <li>Enter PIN: <span className="text-emerald-400 font-mono font-bold">1234</span> (or <span className="text-emerald-400 font-mono">0000</span>) and click Connect.</li>
-                <li>Return here and click <span className="text-blue-400 font-semibold">Connect</span>!</li>
-              </ol>
-              <button
-                onClick={handlePairHC05}
-                className="w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition cursor-pointer"
-              >
-                Open Windows Bluetooth Settings Now
-              </button>
+              <p className="text-[11px] leading-relaxed text-zinc-300">
+                • <strong>HC-05</strong> is a <strong>Bluetooth Classic (2.0)</strong> module. Mobile web browsers (Chrome/Safari) only allow connecting to <strong>Bluetooth Low Energy (BLE)</strong> modules (like HM-10 or ESP32).
+              </p>
+              <p className="text-[11px] leading-relaxed text-zinc-300">
+                • If using <strong>HC-05 on Android</strong> without a PC, use the native <strong>Serial Bluetooth Terminal</strong> app from the Play Store (PIN: 1234).
+              </p>
             </div>
           )}
 
@@ -430,7 +468,7 @@ export default function Home() {
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
                 {lastCommand}
               </span>
-              <span className="text-[10px] text-zinc-500">HC-05 TX</span>
+              <span className="text-[10px] text-zinc-500">TX</span>
             </div>
           )}
 
@@ -446,7 +484,7 @@ export default function Home() {
 
         {/* Footer */}
         <div className="text-center text-xs text-zinc-500">
-          Nano on Battery • Pin 2 (LED 1) & Pin 3 (LED 2) • Commands 1, 0, 2, 3
+          Dual LED Remote • Pin 2 (LED 1) & Pin 3 (LED 2) • Commands 1, 0, 2, 3
         </div>
       </div>
     </main>
