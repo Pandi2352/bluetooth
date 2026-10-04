@@ -1,11 +1,11 @@
-# 📱 Next.js Bluetooth Remote & Serial Terminal for Arduino Nano & HC-05
+# 📱 Bose remote - Bluetooth Controller & Serial Terminal for Arduino Nano & HC-05
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-bluetooth--omega.vercel.app-blue?style=for-the-badge&logo=vercel)](https://bluetooth-omega.vercel.app/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-v4-38B2AC?style=for-the-badge&logo=tailwind-css)](https://tailwindcss.com/)
 
-A modern, tactile IoT Remote Controller and Serial Bluetooth Terminal built with Next.js, TypeScript, and Tailwind CSS. Designed to control dual LED channels connected to an **Arduino Nano** and an **HC-05 Bluetooth module** operating wirelessly on battery power.
+A modern, minimalist **Bose remote** IoT controller and Serial Bluetooth Terminal built with Next.js, TypeScript, and Tailwind CSS. Designed to wirelessly control dual LED channels connected to an **Arduino Nano** and an **HC-05 Bluetooth module** on battery power.
 
 🌐 **Live Web Application:** [https://bluetooth-omega.vercel.app/](https://bluetooth-omega.vercel.app/)  
 📂 **GitHub Repository:** [https://github.com/Pandi2352/bluetooth](https://github.com/Pandi2352/bluetooth)
@@ -14,12 +14,12 @@ A modern, tactile IoT Remote Controller and Serial Bluetooth Terminal built with
 
 ## ✨ Features
 
-- **🎮 Dual-Tab Interface:**
-  - **Tactile Physical Remote:** Styled like a sleek physical remote control with beveled bezels, embossed buttons, channel card panels, diffuse LED status lights, and mobile haptic vibration feedback (`navigator.vibrate`).
-  - **Serial Bluetooth Terminal:** Full-featured live serial console inspired by *Kai Morich's Serial Bluetooth Terminal* with TX/RX message logs, timestamps, ASCII / HEX toggle, autoscroll, configurable line endings (`None`, `\n`, `\r\n`, `\r`), command history navigation, and 4 quick-macro buttons (`M1: '1'`, `M2: '0'`, `M3: '2'`, `M4: '3'`).
+- **🎮 Bose remote Industrial Design:**
+  - **Tactile Physical Remote:** Minimalist Bose aesthetic, clean flat borders, zero shadows, consistent `rounded-md` radius across all components, and compact ergonomic spacing without wasted empty gaps.
+  - **Serial Bluetooth Terminal:** Live serial console inspired by *Kai Morich's Serial Bluetooth Terminal* with TX/RX message logs, timestamps, ASCII / HEX toggle, autoscroll, configurable line endings (`None`, `\n`, `\r\n`, `\r`), command history navigation, and 4 quick-macro buttons (`M1: '1'`, `M2: '0'`, `M3: '2'`, `M4: '3'`).
 - **🌓 Light & Dark Theme:**
-  - **Default Light Mode:** Clean, modern studio aesthetic with soft shadows and tactile depth.
-  - **Dark Mode:** Deep carbon-fiber feel with neon accent glow effects.
+  - **Default Light Mode:** Crisp, clean studio finish with pure flat surfaces.
+  - **Dark Mode:** Deep carbon matte with subtle contrasting borders.
   - Seamless instant toggle with smooth CSS transitions.
 - **⚡ Dual Independent Channels:**
   - **Channel 1 (Pin 2):** Command `'1'` = ON, `'0'` = OFF

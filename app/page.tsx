@@ -341,46 +341,46 @@ export default function Home() {
 
   return (
     <main
-      className={`min-h-screen transition-colors duration-300 font-sans flex flex-col items-center justify-start p-3 sm:p-6 ${
+      className={`min-h-screen transition-colors duration-300 font-sans flex flex-col items-center justify-start p-2 sm:p-4 ${
         isDark ? "bg-zinc-950 text-white" : "bg-slate-100 text-slate-900"
       }`}
     >
-      <div className="w-full max-w-md space-y-4">
+      <div className="w-full max-w-sm space-y-2">
         
         {/* Top App Bar with Light/Dark Mode & Brand */}
-        <header className="flex items-center justify-between px-2 pt-1 pb-2">
+        <header className="flex items-center justify-between px-1 py-1">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md">
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <div className="w-6 h-6 rounded-md bg-blue-600 text-white flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <path d="m7 7 10 10-5 5V2l5 5L7 17" />
               </svg>
             </div>
             <span className="font-extrabold text-sm tracking-tight">
-              BT Remote Control
+              Bose remote
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {/* Theme Toggle (Light / Dark) */}
             <button
               onClick={() => setTheme(isDark ? "light" : "dark")}
               title={`Switch to ${isDark ? "Light" : "Dark"} mode`}
-              className={`p-2 rounded-xl transition cursor-pointer border ${
+              className={`p-1.5 rounded-md transition cursor-pointer border ${
                 isDark
                   ? "bg-zinc-900 border-zinc-800 text-amber-400 hover:bg-zinc-800"
-                  : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm"
+                  : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
               }`}
             >
               {isDark ? (
                 // Sun Icon (Switch to Light)
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="12" cy="12" r="4" />
                   <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
                 </svg>
               ) : (
                 // Moon Icon (Switch to Dark)
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 3a6 6 0 0 0 9 9 9 0 1 1-9-9Z" />
                 </svg>
               )}
             </button>
@@ -389,10 +389,10 @@ export default function Home() {
 
         {/* Segmented Two-Tab Navigation */}
         <nav
-          className={`grid grid-cols-2 p-1.5 rounded-2xl border transition-all ${
+          className={`grid grid-cols-2 p-1 rounded-md border gap-1 transition-all ${
             isDark
-              ? "bg-zinc-900/90 border-zinc-800"
-              : "bg-slate-200/90 border-slate-300/80 shadow-inner"
+              ? "bg-zinc-900 border-zinc-800"
+              : "bg-slate-200 border-slate-300"
           }`}
         >
           <button
@@ -400,18 +400,18 @@ export default function Home() {
               triggerHaptic();
               setActiveTab("remote");
             }}
-            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold text-xs tracking-wide transition cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 py-1.5 rounded-md font-bold text-xs tracking-wider transition cursor-pointer border ${
               activeTab === "remote"
                 ? isDark
-                  ? "bg-zinc-800 text-white shadow-md"
-                  : "bg-white text-slate-900 shadow-md ring-1 ring-slate-900/5"
+                  ? "bg-zinc-800 text-white border-zinc-700"
+                  : "bg-white text-slate-900 border-slate-300"
                 : isDark
-                ? "text-zinc-400 hover:text-white"
-                : "text-slate-600 hover:text-slate-900"
+                ? "border-transparent text-zinc-400 hover:text-white"
+                : "border-transparent text-slate-600 hover:text-slate-900"
             }`}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect width="14" height="20" x="5" y="2" rx="4" />
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect width="14" height="20" x="5" y="2" rx="2" />
               <line x1="8" x2="8.01" y1="6" y2="6" strokeWidth="3" />
               <circle cx="12" cy="14" r="2" />
             </svg>
@@ -423,17 +423,17 @@ export default function Home() {
               triggerHaptic();
               setActiveTab("console");
             }}
-            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold text-xs tracking-wide transition cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 py-1.5 rounded-md font-bold text-xs tracking-wider transition cursor-pointer border ${
               activeTab === "console"
                 ? isDark
-                  ? "bg-zinc-800 text-white shadow-md"
-                  : "bg-white text-slate-900 shadow-md ring-1 ring-slate-900/5"
+                  ? "bg-zinc-800 text-white border-zinc-700"
+                  : "bg-white text-slate-900 border-slate-300"
                 : isDark
-                ? "text-zinc-400 hover:text-white"
-                : "text-slate-600 hover:text-slate-900"
+                ? "border-transparent text-zinc-400 hover:text-white"
+                : "border-transparent text-slate-600 hover:text-slate-900"
             }`}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="4 17 10 11 4 5" />
               <line x1="12" x2="20" y1="19" y2="19" />
             </svg>
@@ -443,25 +443,18 @@ export default function Home() {
 
         {/* Global Connection Header Bar */}
         <section
-          className={`p-3.5 rounded-2xl border flex items-center justify-between transition-all ${
+          className={`p-2.5 rounded-md border flex items-center justify-between transition-all ${
             isDark
-              ? "bg-zinc-900/80 border-zinc-800"
-              : "bg-white border-slate-200 shadow-sm"
+              ? "bg-zinc-900 border-zinc-800"
+              : "bg-white border-slate-300"
           }`}
         >
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-2.5 w-2.5 relative">
-              <span
-                className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                  isConnected ? "bg-emerald-400" : "bg-amber-400"
-                }`}
-              />
-              <span
-                className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
-                  isConnected ? "bg-emerald-500" : "bg-amber-500"
-                }`}
-              />
-            </span>
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-2.5 h-2.5 rounded-md inline-block ${
+                isConnected ? "bg-emerald-500" : "bg-amber-500"
+              }`}
+            />
             <div>
               <p className="text-xs font-bold leading-tight">
                 {isConnected ? connectedDeviceName || "Bluetooth Device" : "Disconnected"}
@@ -478,14 +471,14 @@ export default function Home() {
                 <button
                   onClick={connectWebBluetooth}
                   disabled={isConnecting}
-                  className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50"
+                  className="px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50"
                 >
                   {isConnecting ? "Connecting..." : "Connect"}
                 </button>
                 <button
                   onClick={connectWebSerial}
                   title="Serial port (PC)"
-                  className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                  className={`px-2 py-1 rounded-md text-xs font-semibold border transition cursor-pointer ${
                     isDark
                       ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700"
                       : "bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200"
@@ -497,7 +490,7 @@ export default function Home() {
             ) : (
               <button
                 onClick={handleDisconnect}
-                className="px-3 py-1.5 rounded-xl bg-rose-600/10 text-rose-500 hover:bg-rose-600/20 text-xs font-bold transition cursor-pointer"
+                className="px-2.5 py-1 rounded-md bg-rose-600/10 text-rose-500 border border-rose-500/20 hover:bg-rose-600/20 text-xs font-bold transition cursor-pointer"
               >
                 Disconnect
               </button>
@@ -506,84 +499,89 @@ export default function Home() {
         </section>
 
         {/* ============================================================ */}
-        {/* TAB 1: ACTUAL PHYSICAL REMOTE CONTROL FEEL                  */}
+        {/* TAB 1: ACTUAL BOSE PHYSICAL REMOTE CONTROL FEEL             */}
         {/* ============================================================ */}
         {activeTab === "remote" && (
           <div
-            className={`rounded-[36px] border p-6 relative overflow-hidden transition-all shadow-2xl ${
+            className={`rounded-md border p-3.5 space-y-3 transition-all ${
               isDark
-                ? "bg-gradient-to-b from-zinc-900 to-zinc-950 border-zinc-800 shadow-black/80"
-                : "bg-gradient-to-b from-white via-slate-50 to-slate-200 border-slate-300/80 shadow-slate-300/70"
+                ? "bg-zinc-900 border-zinc-800"
+                : "bg-white border-slate-300"
             }`}
           >
-            {/* Remote Infrared Lens Accent at top center */}
-            <div className="flex flex-col items-center mb-6">
+            {/* Bose Remote Top Notch & Brand Header */}
+            <div className="text-center space-y-1">
               <div
-                className={`w-12 h-2.5 rounded-full mb-3 border shadow-inner ${
+                className={`w-10 h-1.5 rounded-md mx-auto border ${
                   isDark
                     ? "bg-zinc-800 border-zinc-700"
                     : "bg-slate-300 border-slate-400"
                 }`}
               />
-              <span className={`text-[10px] uppercase font-black tracking-widest ${isDark ? "text-zinc-500" : "text-slate-400"}`}>
-                Dual Channel Wireless Controller
-              </span>
+              <div className="flex items-center justify-center gap-1.5">
+                <span className="text-xs font-black tracking-widest uppercase">
+                  Bose remote
+                </span>
+                <span className={`text-[10px] font-semibold ${isDark ? "text-zinc-500" : "text-slate-400"}`}>
+                  • Dual Channel
+                </span>
+              </div>
             </div>
 
             {/* Master Power Bar: ALL ON / ALL OFF */}
-            <div className="grid grid-cols-2 gap-3 mb-6">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={handleAllOn}
-                className={`py-3 px-4 rounded-2xl font-black text-xs tracking-wider flex items-center justify-center gap-1.5 transition transform active:scale-95 shadow-md cursor-pointer border ${
+                className={`py-2 px-3 rounded-md font-bold text-xs tracking-wider flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer border ${
                   isDark
-                    ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-400 hover:bg-emerald-900/50 shadow-emerald-950/50"
-                    : "bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100 shadow-emerald-200/50"
+                    ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-400 hover:bg-emerald-900/50"
+                    : "bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100"
                 }`}
               >
-                <span className="text-sm">⚡</span> ALL ON (1+2)
+                <span>⚡</span> ALL ON (1+2)
               </button>
 
               <button
                 onClick={handleAllOff}
-                className={`py-3 px-4 rounded-2xl font-black text-xs tracking-wider flex items-center justify-center gap-1.5 transition transform active:scale-95 shadow-md cursor-pointer border ${
+                className={`py-2 px-3 rounded-md font-bold text-xs tracking-wider flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer border ${
                   isDark
-                    ? "bg-rose-950/40 border-rose-500/40 text-rose-400 hover:bg-rose-900/50 shadow-rose-950/50"
-                    : "bg-rose-50 border-rose-300 text-rose-700 hover:bg-rose-100 shadow-rose-200/50"
+                    ? "bg-rose-950/40 border-rose-500/40 text-rose-400 hover:bg-rose-900/50"
+                    : "bg-rose-50 border-rose-300 text-rose-700 hover:bg-rose-100"
                 }`}
               >
-                <span className="text-sm">⭕</span> ALL OFF (0+3)
+                <span>⭕</span> ALL OFF (0+3)
               </button>
             </div>
 
-            {/* Physical Button Bezel - LED 1 (Pin 2) */}
+            {/* Channel 1 (LED 1 • Pin 2) */}
             <div
-              className={`rounded-3xl p-5 mb-5 border transition-all ${
+              className={`rounded-md p-3 border space-y-2.5 transition-all ${
                 isDark
-                  ? "bg-zinc-950/80 border-zinc-800/90 shadow-inner"
-                  : "bg-slate-100/90 border-slate-200 shadow-inner"
+                  ? "bg-zinc-950 border-zinc-800"
+                  : "bg-slate-50 border-slate-200"
               }`}
             >
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
                   <div
-                    className={`w-4 h-4 rounded-full transition-all duration-300 ${
+                    className={`w-2.5 h-2.5 rounded-md transition-colors ${
                       led1On
-                        ? "bg-emerald-400 shadow-[0_0_16px_rgba(52,211,153,1)] ring-2 ring-emerald-300"
+                        ? "bg-emerald-500"
                         : isDark
                         ? "bg-zinc-800 border border-zinc-700"
                         : "bg-slate-300 border border-slate-400"
                     }`}
                   />
                   <div>
-                    <h2 className="text-sm font-black tracking-tight">CHANNEL 1 • LED 1</h2>
-                    <p className={`text-[10px] font-bold ${isDark ? "text-zinc-500" : "text-slate-500"}`}>
+                    <h2 className="text-xs font-black tracking-tight">CHANNEL 1 • LED 1</h2>
+                    <p className={`text-[10px] ${isDark ? "text-zinc-500" : "text-slate-500"}`}>
                       Pin D2 • Command: 1 / 0
                     </p>
                   </div>
                 </div>
 
                 <span
-                  className={`text-[10px] font-mono font-black px-2.5 py-1 rounded-full border ${
+                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${
                     led1On
                       ? "bg-emerald-500/20 text-emerald-500 border-emerald-500/30"
                       : isDark
@@ -596,15 +594,15 @@ export default function Home() {
               </div>
 
               {/* Physical Tactile Buttons for LED 1 */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => sendCommand("1")}
-                  className={`py-4 px-3 rounded-2xl font-black text-sm tracking-wider uppercase transition-all duration-150 transform active:scale-95 shadow-lg cursor-pointer border ${
+                  className={`py-3 px-2 rounded-md font-black text-xs tracking-wider uppercase transition active:scale-95 cursor-pointer border ${
                     led1On
-                      ? "bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/50 ring-4 ring-emerald-400/30"
+                      ? "bg-emerald-500 text-white border-emerald-600 ring-2 ring-emerald-500/40"
                       : isDark
-                      ? "bg-zinc-800 hover:bg-zinc-700 text-emerald-400 border-zinc-700 shadow-black/40"
-                      : "bg-white hover:bg-slate-50 text-emerald-600 border-slate-300 shadow-slate-300/80"
+                      ? "bg-zinc-800 hover:bg-zinc-700 text-emerald-400 border-zinc-700"
+                      : "bg-white hover:bg-slate-50 text-emerald-600 border-slate-300"
                   }`}
                 >
                   ON (&apos;1&apos;)
@@ -612,12 +610,12 @@ export default function Home() {
 
                 <button
                   onClick={() => sendCommand("0")}
-                  className={`py-4 px-3 rounded-2xl font-black text-sm tracking-wider uppercase transition-all duration-150 transform active:scale-95 shadow-lg cursor-pointer border ${
+                  className={`py-3 px-2 rounded-md font-black text-xs tracking-wider uppercase transition active:scale-95 cursor-pointer border ${
                     !led1On
                       ? isDark
-                        ? "bg-zinc-900/90 text-zinc-600 border-zinc-800"
-                        : "bg-slate-200/90 text-slate-400 border-slate-300"
-                      : "bg-rose-600 hover:bg-rose-500 text-white border-rose-500 shadow-rose-600/40"
+                        ? "bg-zinc-900 text-zinc-600 border-zinc-800"
+                        : "bg-slate-200 text-slate-400 border-slate-300"
+                      : "bg-rose-600 hover:bg-rose-500 text-white border-rose-700"
                   }`}
                 >
                   OFF (&apos;0&apos;)
@@ -625,35 +623,35 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Physical Button Bezel - LED 2 (Pin 3) */}
+            {/* Channel 2 (LED 2 • Pin 3) */}
             <div
-              className={`rounded-3xl p-5 border transition-all ${
+              className={`rounded-md p-3 border space-y-2.5 transition-all ${
                 isDark
-                  ? "bg-zinc-950/80 border-zinc-800/90 shadow-inner"
-                  : "bg-slate-100/90 border-slate-200 shadow-inner"
+                  ? "bg-zinc-950 border-zinc-800"
+                  : "bg-slate-50 border-slate-200"
               }`}
             >
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
                   <div
-                    className={`w-4 h-4 rounded-full transition-all duration-300 ${
+                    className={`w-2.5 h-2.5 rounded-md transition-colors ${
                       led2On
-                        ? "bg-cyan-400 shadow-[0_0_16px_rgba(34,211,238,1)] ring-2 ring-cyan-300"
+                        ? "bg-cyan-500"
                         : isDark
                         ? "bg-zinc-800 border border-zinc-700"
                         : "bg-slate-300 border border-slate-400"
                     }`}
                   />
                   <div>
-                    <h2 className="text-sm font-black tracking-tight">CHANNEL 2 • LED 2</h2>
-                    <p className={`text-[10px] font-bold ${isDark ? "text-zinc-500" : "text-slate-500"}`}>
+                    <h2 className="text-xs font-black tracking-tight">CHANNEL 2 • LED 2</h2>
+                    <p className={`text-[10px] ${isDark ? "text-zinc-500" : "text-slate-500"}`}>
                       Pin D3 • Command: 2 / 3
                     </p>
                   </div>
                 </div>
 
                 <span
-                  className={`text-[10px] font-mono font-black px-2.5 py-1 rounded-full border ${
+                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${
                     led2On
                       ? "bg-cyan-500/20 text-cyan-500 border-cyan-500/30"
                       : isDark
@@ -666,15 +664,15 @@ export default function Home() {
               </div>
 
               {/* Physical Tactile Buttons for LED 2 */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => sendCommand("2")}
-                  className={`py-4 px-3 rounded-2xl font-black text-sm tracking-wider uppercase transition-all duration-150 transform active:scale-95 shadow-lg cursor-pointer border ${
+                  className={`py-3 px-2 rounded-md font-black text-xs tracking-wider uppercase transition active:scale-95 cursor-pointer border ${
                     led2On
-                      ? "bg-cyan-500 text-white border-cyan-400 shadow-cyan-500/50 ring-4 ring-cyan-400/30"
+                      ? "bg-cyan-500 text-white border-cyan-600 ring-2 ring-cyan-500/40"
                       : isDark
-                      ? "bg-zinc-800 hover:bg-zinc-700 text-cyan-400 border-zinc-700 shadow-black/40"
-                      : "bg-white hover:bg-slate-50 text-cyan-600 border-slate-300 shadow-slate-300/80"
+                      ? "bg-zinc-800 hover:bg-zinc-700 text-cyan-400 border-zinc-700"
+                      : "bg-white hover:bg-slate-50 text-cyan-600 border-slate-300"
                   }`}
                 >
                   ON (&apos;2&apos;)
@@ -682,12 +680,12 @@ export default function Home() {
 
                 <button
                   onClick={() => sendCommand("3")}
-                  className={`py-4 px-3 rounded-2xl font-black text-sm tracking-wider uppercase transition-all duration-150 transform active:scale-95 shadow-lg cursor-pointer border ${
+                  className={`py-3 px-2 rounded-md font-black text-xs tracking-wider uppercase transition active:scale-95 cursor-pointer border ${
                     !led2On
                       ? isDark
-                        ? "bg-zinc-900/90 text-zinc-600 border-zinc-800"
-                        : "bg-slate-200/90 text-slate-400 border-slate-300"
-                      : "bg-rose-600 hover:bg-rose-500 text-white border-rose-500 shadow-rose-600/40"
+                        ? "bg-zinc-900 text-zinc-600 border-zinc-800"
+                        : "bg-slate-200 text-slate-400 border-slate-300"
+                      : "bg-rose-600 hover:bg-rose-500 text-white border-rose-700"
                   }`}
                 >
                   OFF (&apos;3&apos;)
@@ -697,7 +695,7 @@ export default function Home() {
 
             {/* Last Action Bar at base of remote */}
             <div
-              className={`mt-6 pt-3 border-t flex items-center justify-between text-[11px] font-mono ${
+              className={`pt-2 border-t flex items-center justify-between text-[11px] font-mono ${
                 isDark ? "border-zinc-800 text-zinc-400" : "border-slate-200 text-slate-500"
               }`}
             >
@@ -717,31 +715,31 @@ export default function Home() {
         {/* ============================================================ */}
         {activeTab === "console" && (
           <div
-            className={`rounded-3xl border p-4 sm:p-5 space-y-3 transition-all shadow-xl ${
+            className={`rounded-md border p-3 space-y-2 transition-all ${
               isDark
-                ? "bg-zinc-900/95 border-zinc-800"
-                : "bg-white border-slate-200 shadow-slate-200"
+                ? "bg-zinc-900 border-zinc-800"
+                : "bg-white border-slate-300"
             }`}
           >
             {/* Terminal Top Control Bar */}
             <div
-              className={`flex items-center justify-between pb-3 border-b text-xs ${
+              className={`flex items-center justify-between pb-2 border-b text-xs ${
                 isDark ? "border-zinc-800 text-zinc-400" : "border-slate-200 text-slate-600"
               }`}
             >
-              <div className="flex items-center gap-2">
-                <span className="font-mono font-bold flex items-center gap-1.5 text-xs text-blue-500">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono font-bold flex items-center gap-1 text-xs text-blue-500">
+                  <span className="w-1.5 h-1.5 rounded-md bg-emerald-500 inline-block" />
                   TERMINAL
                 </span>
                 <span className="text-[10px] font-mono text-zinc-400">9600 Baud</span>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 {/* Hex / ASCII mode */}
                 <button
                   onClick={() => setDisplayMode(displayMode === "ascii" ? "hex" : "ascii")}
-                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition ${
+                  className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold border transition cursor-pointer ${
                     isDark
                       ? "bg-zinc-950 border-zinc-800 text-zinc-300 hover:text-white"
                       : "bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200"
@@ -754,7 +752,7 @@ export default function Home() {
                 <select
                   value={lineEnding}
                   onChange={(e) => setLineEnding(e.target.value as any)}
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-mono border focus:outline-none ${
+                  className={`rounded-md px-1 py-0.5 text-[10px] font-mono border focus:outline-none cursor-pointer ${
                     isDark
                       ? "bg-zinc-950 border-zinc-800 text-zinc-300"
                       : "bg-slate-100 border-slate-300 text-slate-700"
@@ -768,7 +766,7 @@ export default function Home() {
 
                 <button
                   onClick={() => setMessages([])}
-                  className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                  className={`px-1.5 py-0.5 rounded-md text-[10px] font-semibold border cursor-pointer ${
                     isDark
                       ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700"
                       : "bg-slate-100 border-slate-300 text-slate-600 hover:bg-slate-200"
@@ -780,19 +778,19 @@ export default function Home() {
             </div>
 
             {/* Terminal Viewport Screen */}
-            <div className="h-64 sm:h-80 overflow-y-auto rounded-2xl bg-black/95 p-3.5 font-mono text-xs space-y-1.5 border border-zinc-800 shadow-inner text-emerald-400">
+            <div className="h-60 sm:h-72 overflow-y-auto rounded-md bg-black p-2.5 font-mono text-xs space-y-1 border border-zinc-800 text-emerald-400">
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-1 select-none text-center">
-                  <p className="text-zinc-500 font-medium">Serial Terminal Screen Ready.</p>
+                  <p className="text-zinc-500 font-medium">Bose remote Terminal Ready</p>
                   <p className="text-[11px] text-zinc-600">
-                    Commands sent from the Remote tab or typed below appear here live.
+                    Commands sent from Remote or typed below appear here live.
                   </p>
                 </div>
               ) : (
                 messages.map((m) => {
                   if (m.type === "tx") {
                     return (
-                      <div key={m.id} className="flex items-start gap-2 text-blue-400">
+                      <div key={m.id} className="flex items-start gap-1.5 text-blue-400">
                         <span className="text-zinc-600 text-[10px] select-none">{m.timestamp}</span>
                         <span className="text-blue-500 font-bold select-none">TX &gt;</span>
                         <span className="text-blue-300 font-semibold break-all">{m.text}</span>
@@ -801,7 +799,7 @@ export default function Home() {
                   }
                   if (m.type === "rx") {
                     return (
-                      <div key={m.id} className="flex items-start gap-2 text-emerald-400">
+                      <div key={m.id} className="flex items-start gap-1.5 text-emerald-400">
                         <span className="text-zinc-600 text-[10px] select-none">{m.timestamp}</span>
                         <span className="text-emerald-500 font-bold select-none">RX &lt;</span>
                         <span className="text-emerald-300 break-all">{m.text}</span>
@@ -810,7 +808,7 @@ export default function Home() {
                   }
                   if (m.type === "error") {
                     return (
-                      <div key={m.id} className="flex items-start gap-2 text-rose-400">
+                      <div key={m.id} className="flex items-start gap-1.5 text-rose-400">
                         <span className="text-zinc-600 text-[10px] select-none">{m.timestamp}</span>
                         <span className="text-rose-500 font-bold select-none">[ERR]</span>
                         <span className="break-all">{m.text}</span>
@@ -818,7 +816,7 @@ export default function Home() {
                     );
                   }
                   return (
-                    <div key={m.id} className="flex items-start gap-2 text-amber-400/90 italic">
+                    <div key={m.id} className="flex items-start gap-1.5 text-amber-400/90 italic">
                       <span className="text-zinc-600 text-[10px] select-none">{m.timestamp}</span>
                       <span className="text-amber-500 font-bold select-none">[SYS]</span>
                       <span className="break-all">{m.text}</span>
@@ -830,53 +828,53 @@ export default function Home() {
             </div>
 
             {/* Quick Macro Shortcuts */}
-            <div className="flex flex-wrap gap-2 pt-1 items-center">
-              <span className={`text-[11px] font-bold ${isDark ? "text-zinc-400" : "text-slate-500"}`}>
-                Quick Macros:
+            <div className="flex flex-wrap gap-1.5 pt-0.5 items-center">
+              <span className={`text-[10px] font-bold ${isDark ? "text-zinc-400" : "text-slate-500"}`}>
+                Macros:
               </span>
               <button
                 onClick={() => sendCommand("1")}
-                className="px-2.5 py-1 rounded-lg bg-emerald-600/10 text-emerald-600 border border-emerald-500/30 text-xs font-mono font-bold hover:bg-emerald-600/20 cursor-pointer"
+                className="px-2 py-0.5 rounded-md bg-emerald-600/10 text-emerald-600 border border-emerald-500/30 text-[11px] font-mono font-bold hover:bg-emerald-600/20 cursor-pointer"
               >
                 M1: 1
               </button>
               <button
                 onClick={() => sendCommand("0")}
-                className="px-2.5 py-1 rounded-lg bg-rose-600/10 text-rose-600 border border-rose-500/30 text-xs font-mono font-bold hover:bg-rose-600/20 cursor-pointer"
+                className="px-2 py-0.5 rounded-md bg-rose-600/10 text-rose-600 border border-rose-500/30 text-[11px] font-mono font-bold hover:bg-rose-600/20 cursor-pointer"
               >
                 M2: 0
               </button>
               <button
                 onClick={() => sendCommand("2")}
-                className="px-2.5 py-1 rounded-lg bg-cyan-600/10 text-cyan-600 border border-cyan-500/30 text-xs font-mono font-bold hover:bg-cyan-600/20 cursor-pointer"
+                className="px-2 py-0.5 rounded-md bg-cyan-600/10 text-cyan-600 border border-cyan-500/30 text-[11px] font-mono font-bold hover:bg-cyan-600/20 cursor-pointer"
               >
                 M3: 2
               </button>
               <button
                 onClick={() => sendCommand("3")}
-                className="px-2.5 py-1 rounded-lg bg-rose-600/10 text-rose-600 border border-rose-500/30 text-xs font-mono font-bold hover:bg-rose-600/20 cursor-pointer"
+                className="px-2 py-0.5 rounded-md bg-rose-600/10 text-rose-600 border border-rose-500/30 text-[11px] font-mono font-bold hover:bg-rose-600/20 cursor-pointer"
               >
                 M4: 3
               </button>
             </div>
 
             {/* Command Send Bar */}
-            <form onSubmit={handleFormSubmit} className="flex gap-2 pt-1">
+            <form onSubmit={handleFormSubmit} className="flex gap-1.5 pt-0.5">
               <input
                 type="text"
-                placeholder="Type command (1, 0, 2, 3, AT, etc.)..."
+                placeholder="Type command (1, 0, 2, 3, etc.)..."
                 value={inputCommand}
                 onChange={(e) => setInputCommand(e.target.value)}
-                className={`flex-1 rounded-xl border px-3.5 py-2.5 text-xs font-mono focus:outline-none focus:border-blue-500 transition ${
+                className={`flex-1 rounded-md border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-blue-500 transition ${
                   isDark
                     ? "bg-zinc-950 border-zinc-800 text-white placeholder-zinc-600"
-                    : "bg-slate-100 border-slate-300 text-slate-900 placeholder-slate-400"
+                    : "bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400"
                 }`}
               />
               <button
                 type="submit"
                 disabled={!inputCommand.trim()}
-                className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow-sm cursor-pointer disabled:opacity-50"
+                className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50"
               >
                 Send
               </button>
@@ -885,8 +883,8 @@ export default function Home() {
         )}
 
         {/* Footer */}
-        <footer className={`text-center text-xs pb-4 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>
-          Arduino Nano Dual LED Remote • Pin 2 (LED 1) & Pin 3 (LED 2)
+        <footer className={`text-center text-[10px] pt-1 pb-2 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>
+          Bose remote • Arduino Nano Dual LED Controller (D2 & D3)
         </footer>
       </div>
     </main>
