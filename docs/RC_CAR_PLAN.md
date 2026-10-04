@@ -9,9 +9,10 @@ This blueprint provides an end-to-end engineering roadmap for building, wiring, 
 
 The project scales systematically from **Phase 1 (Basic Differential Drive & Dual Lights)** all the way to **Phase 5 (Autonomous Navigation, Sensor Fusion & FPV Streaming)**.
 
-> 📊 **Circuit Schematics & Diagrams:**
+> 📊 **Circuit Schematics & Firmware:**
 > - 📁 **Draw.io Schematic File:** [`docs/circuit_diagram.drawio`](./circuit_diagram.drawio) *(Open with [app.diagrams.net](https://app.diagrams.net))*
 > - 📄 **Visual Wiring Guide & Checklist:** [`docs/CIRCUIT_GUIDE.md`](./CIRCUIT_GUIDE.md)
+> - 🤖 **Complete Arduino Nano Code:** [`docs/arduino_nano_rc_car.ino`](./arduino_nano_rc_car.ino)
 
 ---
 

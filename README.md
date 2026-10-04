@@ -190,6 +190,7 @@ We have prepared complete engineering plans and interactive circuit diagrams for
 
 - 📊 **Draw.io Complete Circuit Schematic:** [`docs/circuit_diagram.drawio`](./docs/circuit_diagram.drawio) *(Editable on [app.diagrams.net](https://app.diagrams.net))*
 - ⚡ **Wire-by-Wire Assembly Checklist & Visual Schematic:** [`docs/CIRCUIT_GUIDE.md`](./docs/CIRCUIT_GUIDE.md)
+- 🤖 **Complete Arduino Nano Firmware (.ino):** [`docs/arduino_nano_rc_car.ino`](./docs/arduino_nano_rc_car.ino)
 - 🚀 **Full Project Architecture & Roadmap (Scratch to Advanced):** [`docs/RC_CAR_PLAN.md`](./docs/RC_CAR_PLAN.md)
 
 ---
@@ -210,6 +211,7 @@ bluetooth/
 ├── docs/
 │   ├── CIRCUIT_GUIDE.md      # Wire-by-wire connection checklist & Mermaid diagram
 │   ├── RC_CAR_PLAN.md        # Complete RC car architecture & firmware roadmap
+│   ├── arduino_nano_rc_car.ino # Complete Arduino Nano firmware sketch
 │   └── circuit_diagram.drawio # Complete Draw.io hardware circuit diagram
 ├── lib/
 │   └── serialManager.ts      # Persistent Node.js serial port manager

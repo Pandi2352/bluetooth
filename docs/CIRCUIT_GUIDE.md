@@ -1,7 +1,8 @@
 # ⚡ 4WD RC Car: Complete Circuit Diagram & Wiring Guide
 
 This guide accompanies the native draw.io diagram file:  
-📁 [**`docs/circuit_diagram.drawio`**](./circuit_diagram.drawio)
+📁 [**`docs/circuit_diagram.drawio`**](./circuit_diagram.drawio)  
+🤖 [**`docs/arduino_nano_rc_car.ino`**](./arduino_nano_rc_car.ino) *(Complete Arduino Nano Firmware)*
 
 ---
 
