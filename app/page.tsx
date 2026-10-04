@@ -341,11 +341,11 @@ export default function Home() {
 
   return (
     <main
-      className={`min-h-screen transition-colors duration-300 font-sans flex flex-col items-center justify-start p-2 sm:p-4 ${
+      className={`min-h-screen transition-colors duration-300 font-sans flex flex-col items-center justify-start px-2 py-2 sm:px-4 sm:py-6 w-full ${
         isDark ? "bg-zinc-950 text-white" : "bg-slate-100 text-slate-900"
       }`}
     >
-      <div className="w-full max-w-sm space-y-2">
+      <div className="w-full max-w-md mx-auto space-y-2">
         
         {/* Top App Bar with Light/Dark Mode & Brand */}
         <header className="flex items-center justify-between px-1 py-1">
@@ -503,7 +503,7 @@ export default function Home() {
         {/* ============================================================ */}
         {activeTab === "remote" && (
           <div
-            className={`rounded-md border p-3.5 space-y-3 transition-all ${
+            className={`rounded-md border p-2 sm:p-3.5 space-y-2 transition-all ${
               isDark
                 ? "bg-zinc-900 border-zinc-800"
                 : "bg-white border-slate-300"
@@ -555,7 +555,7 @@ export default function Home() {
 
             {/* Channel 1 (LED 1 • Pin 2) */}
             <div
-              className={`rounded-md p-3 border space-y-2.5 transition-all ${
+              className={`rounded-md p-2 sm:p-2.5 border space-y-2 transition-all ${
                 isDark
                   ? "bg-zinc-950 border-zinc-800"
                   : "bg-slate-50 border-slate-200"
@@ -625,7 +625,7 @@ export default function Home() {
 
             {/* Channel 2 (LED 2 • Pin 3) */}
             <div
-              className={`rounded-md p-3 border space-y-2.5 transition-all ${
+              className={`rounded-md p-2 sm:p-2.5 border space-y-2 transition-all ${
                 isDark
                   ? "bg-zinc-950 border-zinc-800"
                   : "bg-slate-50 border-slate-200"
@@ -715,7 +715,7 @@ export default function Home() {
         {/* ============================================================ */}
         {activeTab === "console" && (
           <div
-            className={`rounded-md border p-3 space-y-2 transition-all ${
+            className={`rounded-md border p-2 sm:p-3 space-y-2 transition-all ${
               isDark
                 ? "bg-zinc-900 border-zinc-800"
                 : "bg-white border-slate-300"
