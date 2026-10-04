@@ -1,0 +1,279 @@
+<mxfile host="app.diagrams.net" modified="2026-10-04T06:00:00.000Z" agent="BoseRemote/1.0" version="24.7.8" type="device">
+  <diagram id="circuit_rc_car_nano" name="4WD RC Car Complete Circuit Diagram">
+    <mxGraphModel dx="1422" dy="880" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" background="#f8fafc" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title Block -->
+        <mxCell id="title_banner" value="&lt;b style=&quot;font-size: 20px;&quot;&gt;4WD SMART RC CAR - COMPLETE HARDWARE CIRCUIT SCHEMATIC&lt;/b&gt;&lt;br&gt;&lt;span style=&quot;font-size: 13px; color: #64748b;&quot;&gt;Arduino Nano • L298N Motor Driver • HC-05 Bluetooth Module • 4x TT DC Motors • Dual LED Lights • Bose Remote&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cbd5e1;strokeWidth=2;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="30" width="1530" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- =============================================================== -->
+        <!-- POWER SUPPLY MODULE                                            -->
+        <!-- =============================================================== -->
+        <mxCell id="grp_power" value="POWER SUPPLY (2S / 3S Li-ion)" style="swimlane;whiteSpace=wrap;html=1;fillColor=#fef2f2;strokeColor=#ef4444;strokeWidth=2;fontStyle=1;startSize=26;fontSize=13;fontColor=#991b1b;" vertex="1" parent="1">
+          <mxGeometry x="60" y="130" width="340" height="230" as="geometry" />
+        </mxCell>
+
+        <mxCell id="bat_pack" value="&lt;b style=&quot;font-size: 14px;&quot;&gt;18650 Li-ion Battery&lt;/b&gt;&lt;br&gt;2S (7.4V - 8.4V) or 3S (11.1V)&lt;br&gt;&lt;span style=&quot;color: #dc2626;&quot;&gt;(+) Positive Terminal&lt;/span&gt;&lt;br&gt;&lt;span style=&quot;color: #1e293b;&quot;&gt;(-) Common Ground (GND)&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#f87171;strokeWidth=1.5;" vertex="1" parent="grp_power">
+          <mxGeometry x="20" y="40" width="180" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pwr_switch" value="&lt;b&gt;Master Power Switch&lt;/b&gt;&lt;br&gt;SPST Rocker / Toggle" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef08a;strokeColor=#ca8a04;strokeWidth=1.5;fontSize=11;" vertex="1" parent="grp_power">
+          <mxGeometry x="230" y="55" width="90" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="wire_bat_sw" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#dc2626;strokeWidth=3;" edge="1" parent="grp_power" source="bat_pack" target="pwr_switch">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pwr_notes" value="&lt;b&gt;Power Distribution Rules:&lt;/b&gt;&lt;br&gt;• Battery (+) connects to L298N 12V terminal via switch.&lt;br&gt;• Battery (-) connects to Common GND Bus.&lt;br&gt;• L298N onboard 5V regulator powers Arduino Nano 5V and HC-05 VCC." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=10;fontColor=#7f1d1d;" vertex="1" parent="grp_power">
+          <mxGeometry x="15" y="140" width="310" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- =============================================================== -->
+        <!-- L298N MOTOR DRIVER MODULE                                      -->
+        <!-- =============================================================== -->
+        <mxCell id="grp_l298n" value="L298N DUAL H-BRIDGE MOTOR DRIVER" style="swimlane;whiteSpace=wrap;html=1;fillColor=#eff6ff;strokeColor=#3b82f6;strokeWidth=2;fontStyle=1;startSize=26;fontSize=13;fontColor=#1e40af;" vertex="1" parent="1">
+          <mxGeometry x="460" y="130" width="460" height="420" as="geometry" />
+        </mxCell>
+
+        <!-- L298N Left Terminals (OUT1/OUT2) -->
+        <mxCell id="l298_out12" value="&lt;b&gt;OUT 1 &amp;amp; OUT 2&lt;/b&gt;&lt;br&gt;(Left Motors Channel)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#60a5fa;strokeWidth=1.5;fontSize=11;" vertex="1" parent="grp_l298n">
+          <mxGeometry x="20" y="45" width="130" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- L298N Right Terminals (OUT3/OUT4) -->
+        <mxCell id="l298_out34" value="&lt;b&gt;OUT 3 &amp;amp; OUT 4&lt;/b&gt;&lt;br&gt;(Right Motors Channel)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#60a5fa;strokeWidth=1.5;fontSize=11;" vertex="1" parent="grp_l298n">
+          <mxGeometry x="310" y="45" width="130" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- L298N Power Screw Block -->
+        <mxCell id="l298_pwr_block" value="&lt;b&gt;POWER TERMINAL BLOCK&lt;/b&gt;&lt;br&gt;[ +12V Input ]  [ GND ]  [ +5V Output ]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;strokeWidth=1.5;fontSize=11;" vertex="1" parent="grp_l298n">
+          <mxGeometry x="20" y="125" width="220" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- 5V Regulator Jumper -->
+        <mxCell id="l298_jumper" value="&lt;b&gt;5V Regulator Jumper&lt;/b&gt;&lt;br&gt;[ KEEP ON for 2S 7.4V ]&lt;br&gt;[ REMOVE if Battery &amp;gt; 12V ]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#eab308;strokeWidth=1;fontSize=10;" vertex="1" parent="grp_l298n">
+          <mxGeometry x="260" y="125" width="180" height="55" as="geometry" />
+        </mxCell>
+
+        <!-- L298N Logic Inputs Header -->
+        <mxCell id="l298_logic_header" value="&lt;b style=&quot;font-size: 12px;&quot;&gt;LOGIC CONTROL HEADER PINS&lt;/b&gt;&lt;br&gt;&lt;table border=&quot;1&quot; style=&quot;width:100%; border-collapse:collapse; font-size:10px;&quot;&gt;&lt;tr style=&quot;background:#bfdbfe;&quot;&gt;&lt;th&gt;Pin&lt;/th&gt;&lt;th&gt;Function&lt;/th&gt;&lt;th&gt;Connects to Nano&lt;/th&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;&lt;b&gt;ENA&lt;/b&gt;&lt;/td&gt;&lt;td&gt;Left Motors PWM Speed&lt;/td&gt;&lt;td style=&quot;color:#2563eb;&quot;&gt;&lt;b&gt;D5 (PWM)&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;&lt;b&gt;IN1&lt;/b&gt;&lt;/td&gt;&lt;td&gt;Left Motors Forward&lt;/td&gt;&lt;td&gt;&lt;b&gt;D4&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;&lt;b&gt;IN2&lt;/b&gt;&lt;/td&gt;&lt;td&gt;Left Motors Reverse&lt;/td&gt;&lt;td&gt;&lt;b&gt;D7&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;&lt;b&gt;IN3&lt;/b&gt;&lt;/td&gt;&lt;td&gt;Right Motors Forward&lt;/td&gt;&lt;td&gt;&lt;b&gt;D8&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;&lt;b&gt;IN4&lt;/b&gt;&lt;/td&gt;&lt;td&gt;Right Motors Reverse&lt;/td&gt;&lt;td&gt;&lt;b&gt;D12&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;&lt;b&gt;ENB&lt;/b&gt;&lt;/td&gt;&lt;td&gt;Right Motors PWM Speed&lt;/td&gt;&lt;td style=&quot;color:#2563eb;&quot;&gt;&lt;b&gt;D6 (PWM)&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#93c5fd;strokeWidth=1.5;align=center;verticalAlign=middle;" vertex="1" parent="grp_l298n">
+          <mxGeometry x="20" y="210" width="420" height="190" as="geometry" />
+        </mxCell>
+
+        <!-- =============================================================== -->
+        <!-- 4X DC MOTORS (4WD)                                             -->
+        <!-- =============================================================== -->
+        <mxCell id="grp_motors_left" value="LEFT MOTORS (Wired in Parallel)" style="swimlane;whiteSpace=wrap;html=1;fillColor=#f0fdf4;strokeColor=#22c55e;strokeWidth=1.5;startSize=24;fontSize=11;fontColor=#15803d;" vertex="1" parent="1">
+          <mxGeometry x="60" y="390" width="340" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="m_fl" value="&lt;b&gt;Front-Left TT Motor&lt;/b&gt;&lt;br&gt;3V - 6V DC (1:48)&lt;br&gt;&lt;span style=&quot;color:#16a34a;&quot;&gt;[ 0.1µF filter cap across pins ]&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#86efac;fontSize=10;" vertex="1" parent="grp_motors_left">
+          <mxGeometry x="15" y="35" width="145" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="m_rl" value="&lt;b&gt;Rear-Left TT Motor&lt;/b&gt;&lt;br&gt;3V - 6V DC (1:48)&lt;br&gt;&lt;span style=&quot;color:#16a34a;&quot;&gt;[ 0.1µF filter cap across pins ]&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#86efac;fontSize=10;" vertex="1" parent="grp_motors_left">
+          <mxGeometry x="180" y="35" width="145" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="grp_motors_right" value="RIGHT MOTORS (Wired in Parallel)" style="swimlane;whiteSpace=wrap;html=1;fillColor=#f0fdf4;strokeColor=#22c55e;strokeWidth=1.5;startSize=24;fontSize=11;fontColor=#15803d;" vertex="1" parent="1">
+          <mxGeometry x="60" y="580" width="340" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="m_fr" value="&lt;b&gt;Front-Right TT Motor&lt;/b&gt;&lt;br&gt;3V - 6V DC (1:48)&lt;br&gt;&lt;span style=&quot;color:#16a34a;&quot;&gt;[ 0.1µF filter cap across pins ]&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#86efac;fontSize=10;" vertex="1" parent="grp_motors_right">
+          <mxGeometry x="15" y="35" width="145" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="m_rr" value="&lt;b&gt;Rear-Right TT Motor&lt;/b&gt;&lt;br&gt;3V - 6V DC (1:48)&lt;br&gt;&lt;span style=&quot;color:#16a34a;&quot;&gt;[ 0.1µF filter cap across pins ]&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#86efac;fontSize=10;" vertex="1" parent="grp_motors_right">
+          <mxGeometry x="180" y="35" width="145" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- Wires from L298N OUT to Motors -->
+        <mxCell id="wire_l298_left" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#16a34a;strokeWidth=3;" edge="1" parent="1" source="l298_out12" target="grp_motors_left">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="wire_l298_right" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#16a34a;strokeWidth=3;" edge="1" parent="1" source="l298_out34" target="grp_motors_right">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Wire from Power Switch to L298N 12V -->
+        <mxCell id="wire_sw_l298_12v" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#dc2626;strokeWidth=3;" edge="1" parent="1" source="pwr_switch" target="l298_pwr_block">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- =============================================================== -->
+        <!-- ARDUINO NANO MICROCONTROLLER                                   -->
+        <!-- =============================================================== -->
+        <mxCell id="grp_nano" value="ARDUINO NANO (ATmega328P 16MHz)" style="swimlane;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#0284c7;strokeWidth=2;fontStyle=1;startSize=28;fontSize=13;fontColor=#0369a1;" vertex="1" parent="1">
+          <mxGeometry x="980" y="130" width="300" height="610" as="geometry" />
+        </mxCell>
+
+        <!-- Nano Left Pins Column -->
+        <mxCell id="nano_pin_d2" value="&lt;b&gt;D2&lt;/b&gt; (Light 1 Output)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef08a;strokeColor=#ca8a04;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="15" y="45" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="nano_pin_d3" value="&lt;b&gt;D3&lt;/b&gt; (Light 2 Output)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef08a;strokeColor=#ca8a04;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="15" y="85" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="nano_pin_d4" value="&lt;b&gt;D4&lt;/b&gt; (L298N IN1)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#7dd3fc;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="15" y="125" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="nano_pin_d5" value="&lt;b&gt;D5 (PWM)&lt;/b&gt; (L298N ENA)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bae6fd;strokeColor=#38bdf8;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="15" y="165" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="nano_pin_d6" value="&lt;b&gt;D6 (PWM)&lt;/b&gt; (L298N ENB)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bae6fd;strokeColor=#38bdf8;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="15" y="205" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="nano_pin_d7" value="&lt;b&gt;D7&lt;/b&gt; (L298N IN2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#7dd3fc;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="15" y="245" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="nano_pin_d8" value="&lt;b&gt;D8&lt;/b&gt; (L298N IN3)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#7dd3fc;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="15" y="285" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="nano_pin_d10" value="&lt;b&gt;D10 (RX)&lt;/b&gt; (HC-05 TXD)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ddd6fe;strokeColor=#c4b5fd;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="15" y="325" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="nano_pin_d11" value="&lt;b&gt;D11 (TX)&lt;/b&gt; (To Div / RX)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ddd6fe;strokeColor=#c4b5fd;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="15" y="365" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="nano_pin_d12" value="&lt;b&gt;D12&lt;/b&gt; (L298N IN4)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0f2fe;strokeColor=#7dd3fc;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="15" y="405" width="130" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Nano Right Pins Column (Power & Analog) -->
+        <mxCell id="nano_pin_5v" value="&lt;b&gt;5V Pin (VCC)&lt;/b&gt;&lt;br&gt;&lt;span style=&quot;font-size:9px; color:#b91c1c;&quot;&gt;From L298N 5V Out&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#fca5a5;fontSize=10;align=right;spacingRight=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="155" y="45" width="130" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="nano_pin_gnd" value="&lt;b&gt;GND (Ground)&lt;/b&gt;&lt;br&gt;&lt;span style=&quot;font-size:9px; color:#1e293b;&quot;&gt;Common GND Bus&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#94a3b8;fontSize=10;align=right;spacingRight=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="155" y="95" width="130" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="nano_pin_a0" value="&lt;b&gt;A0&lt;/b&gt; (Battery Telemetry)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#cbd5e1;fontSize=10;align=right;spacingRight=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="155" y="145" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="nano_pin_a4" value="&lt;b&gt;A4 (SDA)&lt;/b&gt; (I2C Gyro/OLED)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#cbd5e1;fontSize=10;align=right;spacingRight=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="155" y="185" width="130" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="nano_pin_a5" value="&lt;b&gt;A5 (SCL)&lt;/b&gt; (I2C Gyro/OLED)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#cbd5e1;fontSize=10;align=right;spacingRight=8;" vertex="1" parent="grp_nano">
+          <mxGeometry x="155" y="225" width="130" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Nano Control Wires to L298N -->
+        <mxCell id="wire_nano_l298" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#0284c7;strokeWidth=2;" edge="1" parent="1" source="grp_nano" target="l298_logic_header">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Power 5V from L298N to Nano 5V -->
+        <mxCell id="wire_l298_nano_5v" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.8;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#ea580c;strokeWidth=3;" edge="1" parent="1" source="l298_pwr_block" target="nano_pin_5v">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="636" y="105" />
+              <mxPoint x="1200" y="105" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- =============================================================== -->
+        <!-- HC-05 BLUETOOTH MODULE & VOLTAGE DIVIDER                       -->
+        <!-- =============================================================== -->
+        <mxCell id="grp_hc05" value="HC-05 BLUETOOTH 2.0 MODULE" style="swimlane;whiteSpace=wrap;html=1;fillColor=#faf5ff;strokeColor=#a855f7;strokeWidth=2;fontStyle=1;startSize=26;fontSize=13;fontColor=#6b21a8;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="130" width="250" height="290" as="geometry" />
+        </mxCell>
+
+        <mxCell id="hc05_vcc" value="&lt;b&gt;VCC&lt;/b&gt; (+5V Power)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fce7f3;strokeColor=#f472b6;fontSize=10;" vertex="1" parent="grp_hc05">
+          <mxGeometry x="15" y="40" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="hc05_gnd" value="&lt;b&gt;GND&lt;/b&gt; (Ground)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#94a3b8;fontSize=10;" vertex="1" parent="grp_hc05">
+          <mxGeometry x="15" y="80" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="hc05_txd" value="&lt;b&gt;TXD&lt;/b&gt; (Transmit 3.3V)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ddd6fe;strokeColor=#c4b5fd;fontSize=10;" vertex="1" parent="grp_hc05">
+          <mxGeometry x="15" y="120" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="hc05_rxd" value="&lt;b&gt;RXD&lt;/b&gt; (Receive 3.3V)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ddd6fe;strokeColor=#c4b5fd;fontSize=10;" vertex="1" parent="grp_hc05">
+          <mxGeometry x="15" y="160" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="hc05_state" value="&lt;b&gt;STATE&lt;/b&gt; (Unconnected)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#cbd5e1;fontSize=10;" vertex="1" parent="grp_hc05">
+          <mxGeometry x="15" y="200" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="hc05_en" value="&lt;b&gt;EN / KEY&lt;/b&gt; (Floating)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f1f5f9;strokeColor=#cbd5e1;fontSize=10;" vertex="1" parent="grp_hc05">
+          <mxGeometry x="15" y="240" width="110" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Voltage Divider on HC-05 RX -->
+        <mxCell id="grp_vdiv" value="&lt;b&gt;3.3V Voltage Divider&lt;/b&gt;&lt;br&gt;Nano D11 (5V) &amp;gt; 1kΩ &amp;gt; RXD&lt;br&gt;RXD &amp;gt; 2kΩ &amp;gt; GND&lt;br&gt;&lt;span style=&quot;color:#7e22ce;&quot;&gt;Protects 3.3V HC-05 logic&lt;/span&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#d8b4fe;fontSize=10;" vertex="1" parent="grp_hc05">
+          <mxGeometry x="135" y="115" width="105" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- Wires between Nano and HC-05 -->
+        <mxCell id="wire_hc05_tx_nano" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#9333ea;strokeWidth=2;" edge="1" parent="1" source="hc05_txd" target="nano_pin_d10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="wire_nano_div_hc05" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#9333ea;strokeWidth=2;" edge="1" parent="1" source="nano_pin_d11" target="grp_vdiv">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- =============================================================== -->
+        <!-- DUAL HEADLIGHTS (LEDS)                                         -->
+        <!-- =============================================================== -->
+        <mxCell id="grp_lights" value="DUAL HEADLIGHTS (Controlled via Bose Remote)" style="swimlane;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#eab308;strokeWidth=2;fontStyle=1;startSize=26;fontSize=13;fontColor=#854d0e;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="470" width="250" height="270" as="geometry" />
+        </mxCell>
+
+        <mxCell id="led_1" value="&lt;b&gt;HEADLIGHT 1 (Left)&lt;/b&gt;&lt;br&gt;White LED + 220Ω Resistor&lt;br&gt;&lt;b style=&quot;color:#ca8a04;&quot;&gt;Nano Pin D2&lt;/b&gt;&lt;br&gt;Remote: &#39;1&#39; = ON, &#39;0&#39; = OFF" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef08a;strokeColor=#fde047;strokeWidth=1.5;fontSize=10;" vertex="1" parent="grp_lights">
+          <mxGeometry x="15" y="40" width="220" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="led_2" value="&lt;b&gt;HEADLIGHT 2 (Right)&lt;/b&gt;&lt;br&gt;White LED + 220Ω Resistor&lt;br&gt;&lt;b style=&quot;color:#ca8a04;&quot;&gt;Nano Pin D3&lt;/b&gt;&lt;br&gt;Remote: &#39;2&#39; = ON, &#39;3&#39; = OFF" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef08a;strokeColor=#fde047;strokeWidth=1.5;fontSize=10;" vertex="1" parent="grp_lights">
+          <mxGeometry x="15" y="150" width="220" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Wires from Nano D2 & D3 to LEDs -->
+        <mxCell id="wire_nano_led1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#ca8a04;strokeWidth=2;" edge="1" parent="1" source="nano_pin_d2" target="led_1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="wire_nano_led2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#ca8a04;strokeWidth=2;" edge="1" parent="1" source="nano_pin_d3" target="led_2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- =============================================================== -->
+        <!-- COMMON GROUND BUS (GND) BAR                                    -->
+        <!-- =============================================================== -->
+        <mxCell id="bus_gnd" value="&lt;b style=&quot;font-size: 13px;&quot;&gt;COMMON GROUND BUS (Tied together: Battery (-) • L298N GND • Arduino GND • HC-05 GND • LED Cathodes)&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#334155;strokeColor=#1e293b;strokeWidth=2;fontColor=#ffffff;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="780" width="1530" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Ground connections to bus -->
+        <mxCell id="wire_gnd_bat" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.1;entryY=0;entryDx=0;entryDy=0;strokeColor=#0f172a;strokeWidth=3;" edge="1" parent="1" source="bat_pack" target="bus_gnd">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="wire_gnd_l298" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.45;entryY=0;entryDx=0;entryDy=0;strokeColor=#0f172a;strokeWidth=3;" edge="1" parent="1" source="l298_pwr_block" target="bus_gnd">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="wire_gnd_nano" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.74;entryY=0;entryDx=0;entryDy=0;strokeColor=#0f172a;strokeWidth=3;" edge="1" parent="1" source="nano_pin_gnd" target="bus_gnd">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="wire_gnd_hc05" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.92;entryY=0;entryDx=0;entryDy=0;strokeColor=#0f172a;strokeWidth=3;" edge="1" parent="1" source="hc05_gnd" target="bus_gnd">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1410" y="440" />
+              <mxPoint x="1467" y="440" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- =============================================================== -->
+        <!-- COLOR CODING LEGEND                                            -->
+        <!-- =============================================================== -->
+        <mxCell id="grp_legend" value="&lt;b&gt;WIRING COLOR CODE KEY&lt;/b&gt;&lt;br&gt;&lt;table style=&quot;width:100%; font-size:10px;&quot;&gt;&lt;tr&gt;&lt;td style=&quot;color:#dc2626;&quot;&gt;&lt;b&gt;■ RED (Thick)&lt;/b&gt;: Battery + (7.4V - 11.1V High Current)&lt;/td&gt;&lt;td style=&quot;color:#ea580c;&quot;&gt;&lt;b&gt;■ ORANGE&lt;/b&gt;: Regulated 5.0V Logic Rail&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;color:#0f172a;&quot;&gt;&lt;b&gt;■ BLACK (Thick)&lt;/b&gt;: Common Ground (GND Bus)&lt;/td&gt;&lt;td style=&quot;color:#16a34a;&quot;&gt;&lt;b&gt;■ GREEN&lt;/b&gt;: Motor Drive High Current Outputs&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;color:#0284c7;&quot;&gt;&lt;b&gt;■ BLUE&lt;/b&gt;: Digital Direction &amp;amp; PWM Signals&lt;/td&gt;&lt;td style=&quot;color:#9333ea;&quot;&gt;&lt;b&gt;■ PURPLE&lt;/b&gt;: Bluetooth Serial Data Lines (TX/RX)&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8fafc;strokeColor=#94a3b8;strokeWidth=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="60" y="840" width="1530" height="60" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

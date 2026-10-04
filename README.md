@@ -182,6 +182,18 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
+---
+
+## 🏎️ 4WD RC Car Expansion & Circuit Diagrams
+
+We have prepared complete engineering plans and interactive circuit diagrams for expanding into a full 4WD Smart RC Car powered by the Arduino Nano, L298N motor driver, and Bose remote:
+
+- 📊 **Draw.io Complete Circuit Schematic:** [`docs/circuit_diagram.drawio`](./docs/circuit_diagram.drawio) *(Editable on [app.diagrams.net](https://app.diagrams.net))*
+- ⚡ **Wire-by-Wire Assembly Checklist & Visual Schematic:** [`docs/CIRCUIT_GUIDE.md`](./docs/CIRCUIT_GUIDE.md)
+- 🚀 **Full Project Architecture & Roadmap (Scratch to Advanced):** [`docs/RC_CAR_PLAN.md`](./docs/RC_CAR_PLAN.md)
+
+---
+
 ## 📁 Repository Structure
 
 ```
@@ -194,12 +206,16 @@ bluetooth/
 │   │   └── ports/            # Lists available COM / Bluetooth SPP ports
 │   ├── globals.css           # Global Tailwind CSS styles
 │   ├── layout.tsx            # Root layout
-│   └── page.tsx              # Tactile Dual Remote & Serial Terminal UI
+│   └── page.tsx              # Bose remote Dual Interface & Serial Terminal
+├── docs/
+│   ├── CIRCUIT_GUIDE.md      # Wire-by-wire connection checklist & Mermaid diagram
+│   ├── RC_CAR_PLAN.md        # Complete RC car architecture & firmware roadmap
+│   └── circuit_diagram.drawio # Complete Draw.io hardware circuit diagram
 ├── lib/
 │   └── serialManager.ts      # Persistent Node.js serial port manager
 ├── scripts/
 │   └── scan_bluetooth.ps1    # PowerShell script to scan Bluetooth devices on Windows
-├── README.md                 # Complete documentation & circuit schematic
+├── README.md                 # Complete documentation & live demo link
 └── package.json              # Project dependencies & scripts
 ```
 
