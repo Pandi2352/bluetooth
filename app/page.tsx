@@ -23,6 +23,7 @@ export default function Home() {
   const [led2On, setLed2On] = useState(false); // Pin 3 ('2' = ON, '3' = OFF)
   const [lastCommand, setLastCommand] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [showPairGuide, setShowPairGuide] = useState(false);
 
   // Scan Bluetooth Devices from Next.js backend (NO browser popups)
   const scanDevices = useCallback(async () => {
@@ -42,7 +43,7 @@ export default function Home() {
 
   useEffect(() => {
     scanDevices();
-    const interval = setInterval(scanDevices, 5000);
+    const interval = setInterval(scanDevices, 4000);
     return () => clearInterval(interval);
   }, [scanDevices]);
 
@@ -55,7 +56,6 @@ export default function Home() {
       const portsRes = await fetch("/api/ports");
       const portsData = await portsRes.json();
 
-      // Find Bluetooth COM port or selected port
       const btPort = portsData.devices?.find(
         (p: any) =>
           p.type === "bluetooth" ||
@@ -68,8 +68,9 @@ export default function Home() {
 
       if (!portToUse) {
         setStatusMessage(
-          "HC-05 not paired yet. Click 'Pair HC-05' to pair it once with PIN 1234."
+          "HC-05 is not paired with Windows yet. Click 'Pair HC-05 (PIN: 1234)' to pair it once."
         );
+        setShowPairGuide(true);
         setIsConnecting(false);
         return;
       }
@@ -85,8 +86,10 @@ export default function Home() {
         setIsConnected(true);
         setConnectedDevice(targetDevice?.name || "HC-05 Bluetooth");
         setStatusMessage("Connected wirelessly to HC-05!");
+        setShowPairGuide(false);
       } else {
-        setStatusMessage(data.error || "Could not connect to HC-05. Ensure it is powered on.");
+        setStatusMessage(data.error || "Could not connect to HC-05. Please pair it first.");
+        setShowPairGuide(true);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Connect failed";
@@ -112,15 +115,18 @@ export default function Home() {
     setStatusMessage("Disconnected from HC-05.");
   };
 
-  // Open Windows Pairing Wizard for HC-05
+  // Open Windows Bluetooth Pairing Settings directly on desktop
   const handlePairHC05 = async () => {
-    setStatusMessage("Opening Windows Bluetooth Pairing Wizard...");
+    setStatusMessage("Opening Windows Bluetooth Settings... Select 'HC-05' and enter PIN: 1234");
+    setShowPairGuide(true);
+    // Direct protocol launch from browser to open Windows Bluetooth Settings
     try {
-      await fetch("/api/bluetooth/pair", { method: "POST" });
-      setStatusMessage("Select HC-05 in the Windows popup and enter PIN: 1234");
+      window.location.href = "ms-settings:bluetooth";
     } catch {
-      setStatusMessage("Failed to open pairing wizard");
+      // Ignore
     }
+    // Also trigger via backend Start-Process
+    fetch("/api/bluetooth/pair", { method: "POST" });
   };
 
   // Send Remote Commands ('1', '0', '2', '3')
@@ -164,7 +170,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-4 sm:p-6 font-sans">
-      <div className="w-full max-w-md space-y-5">
+      <div className="w-full max-w-md space-y-4">
         
         {/* Remote Controller Card */}
         <div className="rounded-3xl border border-zinc-800 bg-zinc-900/90 shadow-2xl p-6 relative overflow-hidden backdrop-blur">
@@ -214,7 +220,7 @@ export default function Home() {
           </div>
 
           {/* Bluetooth Connection Bar */}
-          <div className="mb-6 p-3.5 rounded-2xl border border-zinc-800 bg-zinc-950/70 flex items-center justify-between gap-3">
+          <div className="mb-5 p-3.5 rounded-2xl border border-zinc-800 bg-zinc-950/70 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center">
                 <svg
@@ -235,7 +241,7 @@ export default function Home() {
                   {isConnected ? connectedDevice : "HC-05 Bluetooth"}
                 </p>
                 <p className="text-[11px] text-zinc-400">
-                  {isConnected ? "Ready for commands" : "Connect to control LEDs"}
+                  {isConnected ? "Wireless link active" : "Battery powered"}
                 </p>
               </div>
             </div>
@@ -246,16 +252,16 @@ export default function Home() {
                   <button
                     onClick={() => handleConnectHC05()}
                     disabled={isConnecting}
-                    className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow cursor-pointer disabled:opacity-50"
+                    className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow cursor-pointer disabled:opacity-50"
                   >
                     {isConnecting ? "Connecting..." : "Connect"}
                   </button>
                   <button
                     onClick={handlePairHC05}
-                    title="Pair with PIN 1234"
-                    className="px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium border border-zinc-700 transition cursor-pointer"
+                    title="Pair with PIN 1234 in Windows"
+                    className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-blue-400 text-xs font-semibold border border-zinc-700 transition cursor-pointer"
                   >
-                    Pair
+                    Pair HC-05
                   </button>
                 </>
               ) : (
@@ -268,6 +274,28 @@ export default function Home() {
               )}
             </div>
           </div>
+
+          {/* Quick Pairing Helper Card (Only shows when needed or clicked) */}
+          {showPairGuide && !isConnected && (
+            <div className="mb-5 p-3.5 rounded-2xl bg-blue-950/20 border border-blue-500/30 text-xs text-zinc-300 space-y-2">
+              <div className="flex items-center justify-between text-blue-300 font-semibold">
+                <span>Pairing HC-05 to Windows (PIN: 1234)</span>
+                <button onClick={() => setShowPairGuide(false)} className="text-zinc-500 hover:text-white">✕</button>
+              </div>
+              <ol className="list-decimal list-inside space-y-1 text-[11px] text-zinc-400 leading-relaxed">
+                <li>Click <span className="text-blue-300 font-medium">Add device</span> in the Windows Bluetooth window.</li>
+                <li>Choose <span className="text-white font-medium">Bluetooth</span> and select <span className="text-white font-medium">HC-05</span>.</li>
+                <li>Enter PIN: <span className="text-emerald-400 font-mono font-bold">1234</span> (or <span className="text-emerald-400 font-mono">0000</span>) and click Connect.</li>
+                <li>Return here and click <span className="text-blue-400 font-semibold">Connect</span>!</li>
+              </ol>
+              <button
+                onClick={handlePairHC05}
+                className="w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition cursor-pointer"
+              >
+                Open Windows Bluetooth Settings Now
+              </button>
+            </div>
+          )}
 
           {/* 4 BUTTON CONTROLLER */}
           <div className="space-y-4">
