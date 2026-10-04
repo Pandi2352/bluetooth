@@ -1,159 +1,230 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
-interface BluetoothDeviceItem {
+interface TerminalMessage {
   id: string;
-  name: string;
-  type: string;
-  isHC05: boolean;
-  status: string;
-  port?: string;
+  type: "tx" | "rx" | "system" | "error";
+  text: string;
+  timestamp: string;
 }
 
 export default function Home() {
-  const [devices, setDevices] = useState<BluetoothDeviceItem[]>([]);
-  const [isScanning, setIsScanning] = useState(false);
+  // Connection states
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [connectedDevice, setConnectedDevice] = useState<string | null>(null);
-  const [connectionMode, setConnectionMode] = useState<"ble" | "backend" | null>(null);
+  const [connectedDeviceName, setConnectedDeviceName] = useState<string | null>(null);
+  const [connectionType, setConnectionType] = useState<"webbluetooth" | "webserial" | "backend" | null>(null);
 
-  // 4 Button States
+  // Terminal Console states
+  const [messages, setMessages] = useState<TerminalMessage[]>([]);
+  const [inputCommand, setInputCommand] = useState("");
+  const [commandHistory, setCommandHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [lineEnding, setLineEnding] = useState<"none" | "nl" | "crnl" | "cr">("none");
+  const [displayMode, setDisplayMode] = useState<"ascii" | "hex">("ascii");
+  const [autoScroll, setAutoScroll] = useState(true);
+
+  // Dual LED states
   const [led1On, setLed1On] = useState(false); // Pin 2 ('1' = ON, '0' = OFF)
   const [led2On, setLed2On] = useState(false); // Pin 3 ('2' = ON, '3' = OFF)
-  const [lastCommand, setLastCommand] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [showMobileNotice, setShowMobileNotice] = useState(false);
 
-  // Web Bluetooth GATT characteristic reference (for mobile BLE)
-  const gattCharacteristicRef = useRef<any>(null);
+  // Hardware references
+  const gattTxCharRef = useRef<any>(null);
+  const gattDeviceRef = useRef<any>(null);
+  const serialPortRef = useRef<any>(null);
+  const serialWriterRef = useRef<any>(null);
+  const serialReaderRef = useRef<any>(null);
+  const terminalBottomRef = useRef<HTMLDivElement>(null);
 
-  // Check if running on mobile
-  const [isMobile, setIsMobile] = useState(false);
+  // Add message to terminal
+  const addMessage = (text: string, type: "tx" | "rx" | "system" | "error") => {
+    const timestamp = new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    setMessages((prev) => [
+      ...prev.slice(-300), // Keep last 300 messages
+      { id: Math.random().toString(36).substring(2, 9), type, text, timestamp },
+    ]);
+  };
+
+  // Convert string to Hex representation
+  const stringToHex = (str: string) => {
+    return Array.from(str)
+      .map((c) => c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0"))
+      .join(" ");
+  };
+
+  // Autoscroll terminal
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const mobile = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile/i.test(navigator.userAgent);
-      setIsMobile(mobile);
-      if (mobile) {
-        setShowMobileNotice(true);
-      }
+    if (autoScroll && terminalBottomRef.current) {
+      terminalBottomRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, []);
+  }, [messages, autoScroll]);
 
-  // Web Bluetooth API Connect (Runs natively in Chrome on Android over HTTPS)
-  const handleWebBluetoothConnect = async () => {
+  // Connect via Web Bluetooth (Standard for Mobile Chrome & Web)
+  const connectWebBluetooth = async () => {
     if (typeof window === "undefined" || !("bluetooth" in navigator)) {
-      setStatusMessage(
-        "Web Bluetooth API not supported in this browser. Please use Chrome on Android."
-      );
+      addMessage("Web Bluetooth API is not supported in this browser. Please use Chrome on Android or Desktop.", "error");
       return;
     }
 
     try {
       setIsConnecting(true);
-      setStatusMessage("Opening mobile Bluetooth scanner...");
+      addMessage("Scanning for Bluetooth devices...", "system");
 
-      // Standard Nordic UART and HM-10 BLE Service UUIDs
       const device = await (navigator as any).bluetooth.requestDevice({
         acceptAllDevices: true,
         optionalServices: [
-          "0000ffe0-0000-1000-8000-00805f9b34fb", // HM-10 BLE
-          "6e400001-b5a3-f393-e0a9-e50e24dcca9e", // Nordic UART
+          "0000ffe0-0000-1000-8000-00805f9b34fb", // HM-10 BLE Service
+          "6e400001-b5a3-f393-e0a9-e50e24dcca9e", // Nordic UART Service
           "generic_access",
         ],
       });
 
-      setStatusMessage(`Connecting to ${device.name || "Bluetooth Device"}...`);
+      addMessage(`Connecting to GATT server on ${device.name || "Device"}...`, "system");
       const server = await device.gatt.connect();
+      gattDeviceRef.current = device;
 
-      // Attempt to retrieve TX characteristic
+      // Handle disconnect
+      device.addEventListener("gattserverdisconnected", () => {
+        setIsConnected(false);
+        setConnectedDeviceName(null);
+        setConnectionType(null);
+        addMessage("Bluetooth device disconnected.", "system");
+      });
+
+      // Find UART service and characteristics
+      let txChar: any = null;
+      let rxChar: any = null;
+
       try {
-        const service =
-          (await server.getPrimaryService("0000ffe0-0000-1000-8000-00805f9b34fb").catch(() => null)) ||
-          (await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e").catch(() => null));
-        if (service) {
-          const char =
-            (await service.getCharacteristic("0000ffe1-0000-1000-8000-00805f9b34fb").catch(() => null)) ||
-            (await service.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e").catch(() => null));
-          if (char) {
-            gattCharacteristicRef.current = char;
+        // Try HM-10 service
+        const hm10Service = await server.getPrimaryService("0000ffe0-0000-1000-8000-00805f9b34fb").catch(() => null);
+        if (hm10Service) {
+          txChar = await hm10Service.getCharacteristic("0000ffe1-0000-1000-8000-00805f9b34fb").catch(() => null);
+          rxChar = txChar;
+        }
+
+        // Try Nordic UART service if not HM-10
+        if (!txChar) {
+          const nusService = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e").catch(() => null);
+          if (nusService) {
+            txChar = await nusService.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e").catch(() => null);
+            rxChar = await nusService.getCharacteristic("6e400003-b5a3-f393-e0a9-e50e24dcca9e").catch(() => null);
           }
         }
-      } catch {
-        // Fallback generic
+
+        if (txChar) {
+          gattTxCharRef.current = txChar;
+        }
+
+        // Enable notifications for incoming RX
+        if (rxChar && rxChar.startNotifications) {
+          await rxChar.startNotifications();
+          rxChar.addEventListener("characteristicvaluechanged", (e: any) => {
+            const val = new TextDecoder().decode(e.target.value);
+            const clean = val.trim();
+            if (clean) {
+              addMessage(clean, "rx");
+              if (clean.includes("1") || clean.toLowerCase().includes("on")) setLed1On(true);
+              if (clean.includes("0") || clean.toLowerCase().includes("off")) setLed1On(false);
+            }
+          });
+        }
+      } catch (e: unknown) {
+        addMessage(`Note: ${e instanceof Error ? e.message : String(e)}`, "system");
       }
 
       setIsConnected(true);
-      setConnectedDevice(device.name || "Mobile Bluetooth");
-      setConnectionMode("ble");
-      setStatusMessage(`Connected via Mobile Bluetooth to ${device.name || "Device"}!`);
+      setConnectedDeviceName(device.name || "Bluetooth Device");
+      setConnectionType("webbluetooth");
+      addMessage(`Connected successfully to ${device.name || "Bluetooth Device"}!`, "system");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Cancelled or failed";
-      setStatusMessage(`Bluetooth Note: ${msg}`);
+      const msg = err instanceof Error ? err.message : "User cancelled or device not found";
+      addMessage(`Connection note: ${msg}`, "error");
     } finally {
       setIsConnecting(false);
     }
   };
 
-  // Connect via backend API
-  const handleConnectHC05 = async (targetDevice?: BluetoothDeviceItem) => {
-    setIsConnecting(true);
-    setStatusMessage("Connecting to Bluetooth...");
+  // Connect via Web Serial (Chromium Desktop Bluetooth SPP / COM)
+  const connectWebSerial = async () => {
+    if (typeof window === "undefined" || !("serial" in navigator)) {
+      addMessage("Web Serial API not available. Use Web Bluetooth or Backend mode.", "error");
+      return;
+    }
 
     try {
-      const portsRes = await fetch("/api/ports");
-      const portsData = await portsRes.json();
+      setIsConnecting(true);
+      addMessage("Opening Serial Port picker...", "system");
 
-      const btPort = portsData.devices?.find(
-        (p: any) =>
-          p.type === "bluetooth" ||
-          p.name.toLowerCase().includes("bluetooth") ||
-          p.name.toLowerCase().includes("bth") ||
-          p.name.toLowerCase().includes("hc-05")
-      );
+      const port = await (navigator as any).serial.requestPort();
+      await port.open({ baudRate: 9600 });
+      serialPortRef.current = port;
 
-      const portToUse = targetDevice?.port || btPort?.path || portsData.devices?.[0]?.path;
+      const textEncoder = new TextEncoderStream();
+      textEncoder.readable.pipeTo(port.writable);
+      serialWriterRef.current = textEncoder.writable.getWriter();
 
-      if (!portToUse) {
-        setStatusMessage("No Bluetooth device detected on server. Try 'Connect Mobile Bluetooth' above.");
-        setIsConnecting(false);
-        return;
-      }
+      // Start asynchronous read loop
+      const textDecoder = new TextDecoderStream();
+      port.readable.pipeTo(textDecoder.writable);
+      const reader = textDecoder.readable.getReader();
+      serialReaderRef.current = reader;
 
-      const res = await fetch("/api/connect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "connect", port: portToUse, baudRate: 9600 }),
-      });
-      const data = await res.json();
+      (async () => {
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (value) {
+              const clean = value.replace("\r", "").trim();
+              if (clean) addMessage(clean, "rx");
+            }
+          }
+        } catch {
+          // Port closed
+        }
+      })();
 
-      if (data.success) {
-        setIsConnected(true);
-        setConnectedDevice(targetDevice?.name || "HC-05 Bluetooth");
-        setConnectionMode("backend");
-        setStatusMessage("Connected wirelessly to HC-05!");
-      } else {
-        setStatusMessage(data.error || "Could not connect to HC-05.");
-      }
+      setIsConnected(true);
+      setConnectedDeviceName("HC-05 Serial Port");
+      setConnectionType("webserial");
+      addMessage("Connected via Web Serial at 9600 baud!", "system");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Connect failed";
-      setStatusMessage(`Error: ${msg}`);
+      const msg = err instanceof Error ? err.message : "Cancelled";
+      addMessage(`Serial error: ${msg}`, "error");
     } finally {
       setIsConnecting(false);
     }
   };
 
-  // Disconnect
+  // Disconnect cleanly
   const handleDisconnect = async () => {
-    if (connectionMode === "ble" && gattCharacteristicRef.current) {
+    if (connectionType === "webbluetooth" && gattDeviceRef.current?.gatt) {
       try {
-        gattCharacteristicRef.current.service.device.gatt.disconnect();
+        gattDeviceRef.current.gatt.disconnect();
       } catch {
         // Ignore
       }
-      gattCharacteristicRef.current = null;
+      gattTxCharRef.current = null;
+      gattDeviceRef.current = null;
+    } else if (connectionType === "webserial") {
+      try {
+        if (serialWriterRef.current) await serialWriterRef.current.close();
+        if (serialReaderRef.current) await serialReaderRef.current.cancel();
+        if (serialPortRef.current) await serialPortRef.current.close();
+      } catch {
+        // Ignore
+      }
+      serialWriterRef.current = null;
+      serialReaderRef.current = null;
+      serialPortRef.current = null;
     } else {
+      // Backend disconnect
       try {
         await fetch("/api/connect", {
           method: "POST",
@@ -164,79 +235,114 @@ export default function Home() {
         // Ignore
       }
     }
+
     setIsConnected(false);
-    setConnectedDevice(null);
-    setConnectionMode(null);
-    setStatusMessage("Disconnected.");
+    setConnectedDeviceName(null);
+    setConnectionType(null);
+    addMessage("Disconnected.", "system");
   };
 
-  // Send Remote Commands ('1', '0', '2', '3')
-  const sendCommand = async (cmd: "1" | "0" | "2" | "3") => {
-    if (cmd === "1") {
-      setLed1On(true);
-      setLastCommand("Sent '1' → LED 1 ON");
-    } else if (cmd === "0") {
-      setLed1On(false);
-      setLastCommand("Sent '0' → LED 1 OFF");
-    } else if (cmd === "2") {
-      setLed2On(true);
-      setLastCommand("Sent '2' → LED 2 ON");
-    } else if (cmd === "3") {
-      setLed2On(false);
-      setLastCommand("Sent '3' → LED 2 OFF");
-    }
+  // Transmit command to Bluetooth / Serial Terminal
+  const sendCommand = async (rawCmd: string) => {
+    let payload = rawCmd;
+    if (lineEnding === "nl") payload += "\n";
+    else if (lineEnding === "crnl") payload += "\r\n";
+    else if (lineEnding === "cr") payload += "\r";
 
-    // If connected via Web Bluetooth on mobile
-    if (connectionMode === "ble" && gattCharacteristicRef.current) {
+    // Track internal LED status
+    if (rawCmd === "1") setLed1On(true);
+    else if (rawCmd === "0") setLed1On(false);
+    else if (rawCmd === "2") setLed2On(true);
+    else if (rawCmd === "3") setLed2On(false);
+
+    // Save in history
+    setCommandHistory((prev) => [rawCmd, ...prev.slice(0, 20)]);
+    setHistoryIndex(-1);
+
+    // Display in terminal
+    const displayText = displayMode === "hex" ? stringToHex(payload) : rawCmd;
+    addMessage(displayText, "tx");
+
+    // 1. Web Bluetooth Transmit
+    if (connectionType === "webbluetooth" && gattTxCharRef.current) {
       try {
         const encoder = new TextEncoder();
-        await gattCharacteristicRef.current.writeValue(encoder.encode(cmd));
+        await gattTxCharRef.current.writeValue(encoder.encode(payload));
         return;
       } catch (err: unknown) {
-        console.warn("BLE write fallback:", err);
+        addMessage(`BLE TX Error: ${err instanceof Error ? err.message : String(err)}`, "error");
       }
     }
 
-    // Backend send
+    // 2. Web Serial Transmit
+    if (connectionType === "webserial" && serialWriterRef.current) {
+      try {
+        await serialWriterRef.current.write(payload);
+        return;
+      } catch (err: unknown) {
+        addMessage(`Serial TX Error: ${err instanceof Error ? err.message : String(err)}`, "error");
+      }
+    }
+
+    // 3. Fallback: Next.js Backend Transmit
     try {
-      await fetch("/api/led", {
+      const res = await fetch("/api/led", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ command: cmd }),
+        body: JSON.stringify({ command: rawCmd }),
       });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Send failed";
-      setStatusMessage(`Error: ${msg}`);
+      const data = await res.json();
+      if (!data.success && isConnected) {
+        addMessage(`Send note: ${data.message || data.error}`, "error");
+      }
+    } catch {
+      // Backend offline or running purely client-side
     }
   };
 
-  // Master Actions
-  const handleAllOn = async () => {
-    await sendCommand("1");
-    setTimeout(() => sendCommand("2"), 150);
+  // Handle Form Submit
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputCommand.trim()) return;
+    sendCommand(inputCommand);
+    setInputCommand("");
   };
 
-  const handleAllOff = async () => {
-    await sendCommand("0");
-    setTimeout(() => sendCommand("3"), 150);
+  // Handle Command History (Up / Down arrow keys)
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (historyIndex < commandHistory.length - 1) {
+        const nextIdx = historyIndex + 1;
+        setHistoryIndex(nextIdx);
+        setInputCommand(commandHistory[nextIdx]);
+      }
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (historyIndex > 0) {
+        const prevIdx = historyIndex - 1;
+        setHistoryIndex(prevIdx);
+        setInputCommand(commandHistory[prevIdx]);
+      } else {
+        setHistoryIndex(-1);
+        setInputCommand("");
+      }
+    }
   };
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-center p-4 sm:p-6 font-sans">
-      <div className="w-full max-w-md space-y-4">
+    <main className="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-start p-3 sm:p-6 font-sans">
+      <div className="w-full max-w-2xl space-y-4">
         
-        {/* Remote Controller Card */}
-        <div className="rounded-3xl border border-zinc-800 bg-zinc-900/90 shadow-2xl p-6 relative overflow-hidden backdrop-blur">
-          
-          {/* Subtle Ambient Glow */}
+        {/* Terminal Header & Connection Card */}
+        <div className="rounded-3xl border border-zinc-800 bg-zinc-900/90 shadow-2xl p-5 sm:p-6 relative overflow-hidden backdrop-blur">
           <div
-            className={`absolute -top-14 -right-14 w-44 h-44 rounded-full blur-3xl pointer-events-none transition-all duration-700 ${
+            className={`absolute -top-12 -right-12 w-48 h-48 rounded-full blur-3xl pointer-events-none transition-all duration-700 ${
               led1On || led2On ? "bg-emerald-500/20" : "bg-blue-600/15"
             }`}
           />
 
-          {/* Header */}
-          <div className="flex items-center justify-between mb-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
             <div>
               <div className="flex items-center gap-2">
                 <span className="flex h-2 w-2 relative">
@@ -252,124 +358,102 @@ export default function Home() {
                   />
                 </span>
                 <p className="text-xs uppercase tracking-wider font-semibold text-blue-400">
-                  Live Wireless Remote
+                  Wireless Serial Terminal
                 </p>
               </div>
               <h1 className="mt-1 text-2xl font-bold tracking-tight text-white">
-                Bluetooth LED Remote
+                Serial Bluetooth Terminal
               </h1>
             </div>
 
-            {/* Live Connection Pill */}
+            {/* Connection Status Badge */}
             <span
-              className={`text-xs px-3 py-1 rounded-full font-medium border transition-all ${
+              className={`self-start sm:self-auto text-xs px-3.5 py-1.5 rounded-full font-medium border transition-all ${
                 isConnected
-                  ? "bg-emerald-950/80 text-emerald-400 border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]"
+                  ? "bg-emerald-950/80 text-emerald-400 border-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.25)]"
                   : "bg-zinc-800/80 text-zinc-400 border-zinc-700"
               }`}
             >
-              {isConnected ? "● Connected" : "○ Disconnected"}
+              {isConnected ? `● Connected: ${connectedDeviceName}` : "○ Disconnected"}
             </span>
           </div>
 
-          {/* Mobile Bluetooth Action Bar */}
-          <div className="mb-5 p-3.5 rounded-2xl border border-zinc-800 bg-zinc-950/70 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="w-4 h-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="m7 7 10 10-5 5V2l5 5L7 17" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-white">
-                  {isConnected ? connectedDevice : "Mobile Bluetooth"}
-                </p>
-                <p className="text-[11px] text-zinc-400">
-                  {isConnected ? "Connected to device" : "Tap Connect to pair"}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              {!isConnected ? (
+          {/* Connection Actions */}
+          <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-zinc-800">
+            {!isConnected ? (
+              <>
                 <button
-                  onClick={handleWebBluetoothConnect}
+                  onClick={connectWebBluetooth}
                   disabled={isConnecting}
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow cursor-pointer disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow-md shadow-blue-900/30 cursor-pointer disabled:opacity-50"
                 >
-                  {isConnecting ? "Connecting..." : "Connect Bluetooth"}
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="m7 7 10 10-5 5V2l5 5L7 17" />
+                  </svg>
+                  {isConnecting ? "Scanning..." : "Connect Bluetooth"}
                 </button>
-              ) : (
+
                 <button
-                  onClick={handleDisconnect}
-                  className="px-3.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-rose-400 text-xs font-semibold transition cursor-pointer"
+                  onClick={connectWebSerial}
+                  disabled={isConnecting}
+                  className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold border border-zinc-700 transition cursor-pointer"
                 >
-                  Disconnect
+                  Serial Port / HC-05
                 </button>
-              )}
+              </>
+            ) : (
+              <button
+                onClick={handleDisconnect}
+                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-rose-400 text-xs font-bold transition cursor-pointer"
+              >
+                Disconnect
+              </button>
+            )}
+
+            <div className="ml-auto flex items-center gap-2 text-xs text-zinc-400">
+              <button
+                onClick={() => setMessages([])}
+                className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition cursor-pointer"
+              >
+                Clear
+              </button>
             </div>
           </div>
+        </div>
 
-          {/* Mobile HC-05 Important Notice Box */}
-          {showMobileNotice && (
-            <div className="mb-5 p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/40 text-xs text-amber-200/90 space-y-1.5">
-              <div className="flex items-center justify-between font-bold text-amber-300">
-                <span>📱 Mobile Browser Bluetooth Notice</span>
-                <button onClick={() => setShowMobileNotice(false)} className="text-zinc-500 hover:text-white">✕</button>
-              </div>
-              <p className="text-[11px] leading-relaxed text-zinc-300">
-                • <strong>HC-05</strong> is a <strong>Bluetooth Classic (2.0)</strong> module. Mobile web browsers (Chrome/Safari) only allow connecting to <strong>Bluetooth Low Energy (BLE)</strong> modules (like HM-10 or ESP32).
-              </p>
-              <p className="text-[11px] leading-relaxed text-zinc-300">
-                • If using <strong>HC-05 on Android</strong> without a PC, use the native <strong>Serial Bluetooth Terminal</strong> app from the Play Store (PIN: 1234).
-              </p>
-            </div>
-          )}
+        {/* 4 DEDICATED BUTTON MACROS & LED STATUS */}
+        <div className="rounded-3xl border border-zinc-800 bg-zinc-900/90 shadow-xl p-5 space-y-4 backdrop-blur">
+          <div className="flex items-center justify-between text-xs text-zinc-400">
+            <span className="font-semibold text-zinc-200 uppercase tracking-wider">
+              Dual LED Remote (4 Buttons)
+            </span>
+            <span className="text-[11px] font-mono text-zinc-500">Pins: D2 & D3</span>
+          </div>
 
-          {/* 4 BUTTON CONTROLLER */}
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             
-            {/* LED 1 SECTION (Pin 2) */}
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4 space-y-3">
+            {/* LED 1 Panel (Pin 2) */}
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-3.5 space-y-2.5">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2">
                   <div
-                    className={`h-3.5 w-3.5 rounded-full transition-all duration-300 ${
+                    className={`h-3 w-3 rounded-full transition-all duration-300 ${
                       led1On
-                        ? "bg-emerald-400 shadow-[0_0_14px_rgba(52,211,153,1)]"
+                        ? "bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,1)]"
                         : "bg-zinc-700"
                     }`}
                   />
-                  <div>
-                    <h2 className="text-sm font-bold text-white">LED 1 (Pin 2)</h2>
-                    <p className="text-[11px] text-zinc-400">
-                      Status:{" "}
-                      <span className={led1On ? "text-emerald-400 font-semibold" : "text-zinc-500"}>
-                        {led1On ? "ON" : "OFF"}
-                      </span>
-                    </p>
-                  </div>
+                  <span className="text-xs font-bold text-white">LED 1 (Pin 2)</span>
                 </div>
-
-                <span className="text-[10px] font-mono text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
-                  Cmd 1 / 0
+                <span className={`text-[10px] font-bold ${led1On ? "text-emerald-400" : "text-zinc-500"}`}>
+                  {led1On ? "● ON" : "○ OFF"}
                 </span>
               </div>
 
-              {/* 2 Buttons for LED 1 */}
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => sendCommand("1")}
-                  className={`py-3.5 px-4 rounded-xl text-xs font-bold tracking-wide transition-all transform active:scale-95 shadow cursor-pointer ${
+                  className={`py-2.5 px-3 rounded-xl text-xs font-bold transition transform active:scale-95 shadow cursor-pointer ${
                     led1On
                       ? "bg-emerald-500 text-white shadow-emerald-900/40 ring-2 ring-emerald-400/50"
                       : "bg-emerald-600 hover:bg-emerald-500 text-white"
@@ -377,10 +461,9 @@ export default function Home() {
                 >
                   LED 1 ON (&apos;1&apos;)
                 </button>
-
                 <button
                   onClick={() => sendCommand("0")}
-                  className={`py-3.5 px-4 rounded-xl text-xs font-bold tracking-wide transition-all transform active:scale-95 shadow cursor-pointer ${
+                  className={`py-2.5 px-3 rounded-xl text-xs font-bold transition transform active:scale-95 shadow cursor-pointer ${
                     !led1On
                       ? "bg-zinc-800/80 text-zinc-400 border border-zinc-700/60"
                       : "bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/40"
@@ -391,38 +474,28 @@ export default function Home() {
               </div>
             </div>
 
-            {/* LED 2 SECTION (Pin 3) */}
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4 space-y-3">
+            {/* LED 2 Panel (Pin 3) */}
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-3.5 space-y-2.5">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2">
                   <div
-                    className={`h-3.5 w-3.5 rounded-full transition-all duration-300 ${
+                    className={`h-3 w-3 rounded-full transition-all duration-300 ${
                       led2On
-                        ? "bg-cyan-400 shadow-[0_0_14px_rgba(34,211,238,1)]"
+                        ? "bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,1)]"
                         : "bg-zinc-700"
                     }`}
                   />
-                  <div>
-                    <h2 className="text-sm font-bold text-white">LED 2 (Pin 3)</h2>
-                    <p className="text-[11px] text-zinc-400">
-                      Status:{" "}
-                      <span className={led2On ? "text-cyan-400 font-semibold" : "text-zinc-500"}>
-                        {led2On ? "ON" : "OFF"}
-                      </span>
-                    </p>
-                  </div>
+                  <span className="text-xs font-bold text-white">LED 2 (Pin 3)</span>
                 </div>
-
-                <span className="text-[10px] font-mono text-zinc-500 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
-                  Cmd 2 / 3
+                <span className={`text-[10px] font-bold ${led2On ? "text-cyan-400" : "text-zinc-500"}`}>
+                  {led2On ? "● ON" : "○ OFF"}
                 </span>
               </div>
 
-              {/* 2 Buttons for LED 2 */}
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => sendCommand("2")}
-                  className={`py-3.5 px-4 rounded-xl text-xs font-bold tracking-wide transition-all transform active:scale-95 shadow cursor-pointer ${
+                  className={`py-2.5 px-3 rounded-xl text-xs font-bold transition transform active:scale-95 shadow cursor-pointer ${
                     led2On
                       ? "bg-cyan-500 text-white shadow-cyan-900/40 ring-2 ring-cyan-400/50"
                       : "bg-blue-600 hover:bg-blue-500 text-white"
@@ -430,10 +503,9 @@ export default function Home() {
                 >
                   LED 2 ON (&apos;2&apos;)
                 </button>
-
                 <button
                   onClick={() => sendCommand("3")}
-                  className={`py-3.5 px-4 rounded-xl text-xs font-bold tracking-wide transition-all transform active:scale-95 shadow cursor-pointer ${
+                  className={`py-2.5 px-3 rounded-xl text-xs font-bold transition transform active:scale-95 shadow cursor-pointer ${
                     !led2On
                       ? "bg-zinc-800/80 text-zinc-400 border border-zinc-700/60"
                       : "bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/40"
@@ -443,48 +515,156 @@ export default function Home() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
 
-            {/* Master All ON / All OFF Quick Buttons */}
-            <div className="grid grid-cols-2 gap-2.5 pt-1">
+        {/* TERMINAL CONSOLE VIEWPORT */}
+        <div className="rounded-3xl border border-zinc-800 bg-zinc-950/95 shadow-2xl p-4 sm:p-5 space-y-3">
+          
+          {/* Console Controls Bar */}
+          <div className="flex items-center justify-between text-xs text-zinc-400 border-b border-zinc-800 pb-2.5">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-zinc-200 font-bold flex items-center gap-1.5 text-xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                SERIAL CONSOLE
+              </span>
+              <span className="text-[10px] text-zinc-500 font-mono">9600 Baud</span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {/* ASCII / HEX View Toggle */}
               <button
-                onClick={handleAllOn}
-                className="py-2.5 px-3 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold border border-zinc-700/60 transition cursor-pointer"
+                onClick={() => setDisplayMode(displayMode === "ascii" ? "hex" : "ascii")}
+                className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-300 hover:text-white"
               >
-                ⚡ ALL ON (1 + 2)
+                {displayMode.toUpperCase()}
               </button>
-              <button
-                onClick={handleAllOff}
-                className="py-2.5 px-3 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold border border-zinc-700/60 transition cursor-pointer"
+
+              {/* Line Ending */}
+              <select
+                value={lineEnding}
+                onChange={(e) => setLineEnding(e.target.value as any)}
+                className="bg-zinc-900 border border-zinc-800 rounded px-2 py-0.5 text-[10px] text-zinc-300 focus:outline-none"
               >
-                🌙 ALL OFF (0 + 3)
-              </button>
+                <option value="none">No Ending</option>
+                <option value="nl">\n (LF)</option>
+                <option value="crnl">\r\n (CRLF)</option>
+                <option value="cr">\r (CR)</option>
+              </select>
+
+              {/* Autoscroll */}
+              <label className="flex items-center gap-1 cursor-pointer text-[11px] text-zinc-400 select-none">
+                <input
+                  type="checkbox"
+                  checked={autoScroll}
+                  onChange={(e) => setAutoScroll(e.target.checked)}
+                  className="rounded border-zinc-700 bg-zinc-900 text-blue-600 focus:ring-0"
+                />
+                Scroll
+              </label>
             </div>
           </div>
 
-          {/* Last Sent Feedback Indicator */}
-          {lastCommand && (
-            <div className="mt-4 p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800 flex items-center justify-between text-xs text-zinc-300 font-mono">
-              <span className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
-                {lastCommand}
-              </span>
-              <span className="text-[10px] text-zinc-500">TX</span>
-            </div>
-          )}
+          {/* Terminal Screen */}
+          <div className="h-60 sm:h-72 overflow-y-auto rounded-2xl bg-black/95 p-3.5 font-mono text-xs space-y-1.5 border border-zinc-800/80 shadow-inner">
+            {messages.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-1 select-none">
+                <p className="text-zinc-500 font-medium">Serial Bluetooth Terminal Ready.</p>
+                <p className="text-[11px]">Tap buttons above or type commands below to transmit.</p>
+              </div>
+            ) : (
+              messages.map((m) => {
+                if (m.type === "tx") {
+                  return (
+                    <div key={m.id} className="flex items-start gap-2 text-blue-400">
+                      <span className="text-zinc-600 text-[10px] select-none">{m.timestamp}</span>
+                      <span className="text-blue-500 font-bold select-none">TX &gt;</span>
+                      <span className="text-blue-300 font-semibold break-all">{m.text}</span>
+                    </div>
+                  );
+                }
+                if (m.type === "rx") {
+                  return (
+                    <div key={m.id} className="flex items-start gap-2 text-emerald-400">
+                      <span className="text-zinc-600 text-[10px] select-none">{m.timestamp}</span>
+                      <span className="text-emerald-500 font-bold select-none">RX &lt;</span>
+                      <span className="text-emerald-300 break-all">{m.text}</span>
+                    </div>
+                  );
+                }
+                if (m.type === "error") {
+                  return (
+                    <div key={m.id} className="flex items-start gap-2 text-rose-400">
+                      <span className="text-zinc-600 text-[10px] select-none">{m.timestamp}</span>
+                      <span className="text-rose-500 font-bold select-none">[ERR]</span>
+                      <span className="break-all">{m.text}</span>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={m.id} className="flex items-start gap-2 text-amber-400/90 italic">
+                    <span className="text-zinc-600 text-[10px] select-none">{m.timestamp}</span>
+                    <span className="text-amber-500 font-bold select-none">[SYS]</span>
+                    <span className="break-all">{m.text}</span>
+                  </div>
+                );
+              })
+            )}
+            <div ref={terminalBottomRef} />
+          </div>
 
-          {statusMessage && (
-            <div className="mt-3 p-2.5 rounded-xl bg-zinc-800/90 border border-zinc-700 text-xs text-zinc-300 flex items-center justify-between">
-              <span>{statusMessage}</span>
-              <button onClick={() => setStatusMessage(null)} className="text-zinc-500 hover:text-white ml-2">
-                ✕
-              </button>
-            </div>
-          )}
+          {/* Quick Macro Bar (M1 - M4) */}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <span className="text-xs text-zinc-500 self-center mr-1">Macros:</span>
+            <button
+              onClick={() => sendCommand("1")}
+              className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-emerald-400 font-mono text-[11px] transition cursor-pointer"
+            >
+              M1: 1
+            </button>
+            <button
+              onClick={() => sendCommand("0")}
+              className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-rose-400 font-mono text-[11px] transition cursor-pointer"
+            >
+              M2: 0
+            </button>
+            <button
+              onClick={() => sendCommand("2")}
+              className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-cyan-400 font-mono text-[11px] transition cursor-pointer"
+            >
+              M3: 2
+            </button>
+            <button
+              onClick={() => sendCommand("3")}
+              className="px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-rose-400 font-mono text-[11px] transition cursor-pointer"
+            >
+              M4: 3
+            </button>
+          </div>
+
+          {/* Command Input Bar */}
+          <form onSubmit={handleFormSubmit} className="flex gap-2 pt-1">
+            <input
+              type="text"
+              placeholder="Type command (e.g. 1, 0, 2, 3, AT)..."
+              value={inputCommand}
+              onChange={(e) => setInputCommand(e.target.value)}
+              onKeyDown={handleKeyDown}
+              className="flex-1 rounded-xl bg-zinc-900 border border-zinc-800 px-3.5 py-2.5 text-xs text-white placeholder-zinc-600 font-mono focus:outline-none focus:border-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={!inputCommand.trim()}
+              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow cursor-pointer disabled:opacity-50"
+            >
+              Send
+            </button>
+          </form>
         </div>
 
         {/* Footer */}
         <div className="text-center text-xs text-zinc-500">
-          Dual LED Remote • Pin 2 (LED 1) & Pin 3 (LED 2) • Commands 1, 0, 2, 3
+          Serial Bluetooth Terminal • Nano on Battery • Pin 2 (LED 1) & Pin 3 (LED 2)
         </div>
       </div>
     </main>
