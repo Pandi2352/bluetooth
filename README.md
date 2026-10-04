@@ -1,36 +1,108 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Next.js Bluetooth Remote Control for Arduino Nano & HC-05
 
-## Getting Started
+A complete, self-contained Next.js IoT Remote Controller to wirelessly switch an LED ON/OFF via an HC-05 Bluetooth module and an Arduino Nano.
 
-First, run the development server:
+**No separate backend or external broker needed** — the backend serial communication runs directly inside Next.js API route handlers using Node.js `serialport`.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+---
+
+## ⚡ Architecture Flow
+
+```
+[ Next.js Remote UI (Browser) ]
+              │
+              │ HTTP / Fetch API (POST /api/led, POST /api/connect)
+              ▼
+[ Next.js App Router Backend API ]
+              │
+              │ Node.js SerialPort (lib/serialManager.ts)
+              ▼
+[ Windows Virtual Bluetooth COM Port / USB-Serial ]
+              │
+              │ Wireless Bluetooth SPP (2.4 GHz)
+              ▼
+[ HC-05 Bluetooth Module ]
+              │
+              │ UART Serial (TX / RX at 9600 Baud)
+              ▼
+[ Arduino Nano ]
+              │
+              │ Digital Output (Pin 13 or Pin 2)
+              ▼
+           [ LED ]
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🔌 Hardware Wiring Diagram
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 1. HC-05 Bluetooth to Arduino Nano
 
-## Learn More
+| HC-05 Pin | Arduino Nano Pin | Note |
+|---|---|---|
+| **VCC** | **5V** | Power supply |
+| **GND** | **GND** | Common ground |
+| **TXD** | **D10** (RX) | SoftwareSerial RX |
+| **RXD** | **D11** (TX) | *Recommended:* Use voltage divider (1kΩ / 2kΩ) because HC-05 RX is 3.3V logic |
+| **STATE** | Not connected | Optional |
+| **EN / KEY**| Not connected | Leave floating for normal data mode |
 
-To learn more about Next.js, take a look at the following resources:
+> **Note on Voltage Divider for HC-05 RXD:**
+> - Arduino Nano D11 ──[ 1kΩ ]──┬── HC-05 RXD
+>                              │
+>                            [ 2kΩ ]
+>                              │
+>                             GND
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 2. LED Connection
+- **Anode (+, long leg):** Arduino Nano **Pin 13** (Built-in LED) or **Pin 2** through a 220Ω resistor.
+- **Cathode (-, short leg):** Arduino **GND**.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## 🚀 Getting Started
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Step 1: Upload Arduino Sketch
+1. Open the Arduino IDE.
+2. Open [`arduino/arduino_hc05_led.ino`](./arduino/arduino_hc05_led.ino).
+3. Select your Board: **Arduino Nano** (Processor: ATmega328P / Old Bootloader).
+4. Select the COM Port and click **Upload**.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Step 2: Pair HC-05 with Windows
+1. On your PC, open **Settings > Bluetooth & devices > Add device**.
+2. Select **Bluetooth** and wait for **HC-05** to appear.
+3. Click to pair and enter PIN: `1234` or `0000`.
+4. Windows will pair the HC-05 and assign an outgoing Standard Serial over Bluetooth port (e.g. `COM4`, `COM6`, etc.).
+
+### Step 3: Run the Next.js Remote
+```bash
+npm run dev
+```
+Open **[http://localhost:3000](http://localhost:3000)** in your browser.
+
+---
+
+## 🎮 How to Use the Remote Control
+
+1. Click **"Setup Port"** or the gear icon in the top right.
+2. Select your Bluetooth COM port (or USB COM port e.g. `COM5`).
+3. Click **"Connect Hardware"**. The indicator will turn **Green** (Connected).
+4. Click **"Turn ON"**:
+   - Sends `'1'` to Arduino via HC-05.
+   - Nano turns the LED ON.
+   - UI status glows green with real-time feedback.
+5. Click **"Turn OFF"**:
+   - Sends `'0'` to Arduino via HC-05.
+   - Nano turns the LED OFF.
+   - UI status updates to OFF.
+
+---
+
+## 🛠️ Project Structure
+
+- [`app/page.tsx`](./app/page.tsx) - Modern Dark Glassmorphic Remote Control UI.
+- [`app/api/led/route.ts`](./app/api/led/route.ts) - API to switch LED ON/OFF (`POST /api/led`).
+- [`app/api/ports/route.ts`](./app/api/ports/route.ts) - Scans and lists available COM / Bluetooth ports.
+- [`app/api/connect/route.ts`](./app/api/connect/route.ts) - Connects/disconnects hardware port.
+- [`lib/serialManager.ts`](./lib/serialManager.ts) - Next.js persistent backend singleton managing the serial connection.
+- [`arduino/arduino_hc05_led.ino`](./arduino/arduino_hc05_led.ino) - C++ Arduino sketch for the Nano.
