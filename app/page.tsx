@@ -22,18 +22,9 @@ export default function Home() {
   const [connectedDeviceName, setConnectedDeviceName] = useState<string | null>(null);
   const [connectionType, setConnectionType] = useState<"webbluetooth" | "webserial" | "backend" | null>(null);
 
-  // RC Car Driving Mode: 'tap' (click once to drive) | 'hold' (drive while pressed)
-  const [driveMode, setDriveMode] = useState<"tap" | "hold">("tap");
-
   // RC Car Driving states ('F' = Forward, 'B' = Reverse, 'L' = Left, 'R' = Right, 'STOP' = Brake)
   const [driveState, setDriveState] = useState<"STOP" | "F" | "B" | "L" | "R">("STOP");
-  const driveIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const activeDriveCmdRef = useRef<string | null>(null);
   const [lastAction, setLastAction] = useState<string | null>(null);
-
-  // Bluetooth Transmission Mutex & Queue (Prevents "GATT operation already in progress")
-  const isSendingRef = useRef(false);
-  const pendingCmdRef = useRef<{ rawCmd: string; label?: string; isStream?: boolean } | null>(null);
 
   // Terminal Console states
   const [messages, setMessages] = useState<TerminalMessage[]>([]);
@@ -51,12 +42,13 @@ export default function Home() {
   const serialWriterRef = useRef<any>(null);
   const serialReaderRef = useRef<any>(null);
   const terminalBottomRef = useRef<HTMLDivElement>(null);
+  const isWritingRef = useRef<boolean>(false);
 
   // Tactile haptic feedback for physical remote feel
   const triggerHaptic = () => {
     if (typeof window !== "undefined" && "vibrate" in navigator) {
       try {
-        navigator.vibrate(25);
+        navigator.vibrate(30);
       } catch {
         // Ignore if restricted
       }
@@ -89,7 +81,7 @@ export default function Home() {
     }
   }, [messages, autoScroll]);
 
-  // Connect via Web Bluetooth (Mobile Chrome / HTTPS)
+  // Connect via Web Bluetooth (Mobile Chrome / Android / HTTPS)
   const connectWebBluetooth = async () => {
     if (typeof window === "undefined" || !("bluetooth" in navigator)) {
       addMessage("Web Bluetooth API not supported in this browser. Please use Chrome on Android.", "error");
@@ -106,6 +98,7 @@ export default function Home() {
         optionalServices: [
           "0000ffe0-0000-1000-8000-00805f9b34fb", // HM-10 BLE Service
           "6e400001-b5a3-f393-e0a9-e50e24dcca9e", // Nordic UART Service
+          "0000fff0-0000-1000-8000-00805f9b34fb", // JDY-08 / JDY-30 / JDY-31
           "generic_access",
         ],
       });
@@ -126,26 +119,51 @@ export default function Home() {
       let txChar: any = null;
       let rxChar: any = null;
 
+      // Try HM-10 Service
       try {
         const hm10Service = await server.getPrimaryService("0000ffe0-0000-1000-8000-00805f9b34fb").catch(() => null);
         if (hm10Service) {
           txChar = await hm10Service.getCharacteristic("0000ffe1-0000-1000-8000-00805f9b34fb").catch(() => null);
           rxChar = txChar;
         }
+      } catch {
+        // Continue
+      }
 
-        if (!txChar) {
+      // Try Nordic UART Service
+      if (!txChar) {
+        try {
           const nusService = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e").catch(() => null);
           if (nusService) {
             txChar = await nusService.getCharacteristic("6e400002-b5a3-f393-e0a9-e50e24dcca9e").catch(() => null);
             rxChar = await nusService.getCharacteristic("6e400003-b5a3-f393-e0a9-e50e24dcca9e").catch(() => null);
           }
+        } catch {
+          // Continue
         }
+      }
 
-        if (txChar) {
-          gattTxCharRef.current = txChar;
+      // Try JDY Service
+      if (!txChar) {
+        try {
+          const jdyService = await server.getPrimaryService("0000fff0-0000-1000-8000-00805f9b34fb").catch(() => null);
+          if (jdyService) {
+            txChar = await jdyService.getCharacteristic("0000fff1-0000-1000-8000-00805f9b34fb").catch(() => null);
+            rxChar = txChar;
+          }
+        } catch {
+          // Continue
         }
+      }
 
-        if (rxChar && rxChar.startNotifications) {
+      if (txChar) {
+        gattTxCharRef.current = txChar;
+      } else {
+        addMessage("Note: Connected to GATT, but serial TX characteristic not found. Commands will also route via backend fallback.", "system");
+      }
+
+      if (rxChar && rxChar.startNotifications) {
+        try {
           await rxChar.startNotifications();
           rxChar.addEventListener("characteristicvaluechanged", (e: any) => {
             const val = new TextDecoder().decode(e.target.value).trim();
@@ -153,9 +171,9 @@ export default function Home() {
               addMessage(val, "rx");
             }
           });
+        } catch {
+          // Notifications optional
         }
-      } catch {
-        // Fallback or continue
       }
 
       setIsConnected(true);
@@ -170,7 +188,7 @@ export default function Home() {
     }
   };
 
-  // Connect via Web Serial (Chromium Desktop)
+  // Connect via Web Serial (Chromium Desktop / USB / Bluetooth SPP COM Port)
   const connectWebSerial = async () => {
     if (typeof window === "undefined" || !("serial" in navigator)) {
       addMessage("Web Serial API not available. Use Web Bluetooth mode on mobile.", "error");
@@ -206,7 +224,7 @@ export default function Home() {
             }
           }
         } catch {
-          // Closed
+          // Port closed
         }
       })();
 
@@ -259,22 +277,62 @@ export default function Home() {
     setIsConnected(false);
     setConnectedDeviceName(null);
     setConnectionType(null);
+    setDriveState("STOP");
     addMessage("Disconnected.", "system");
   };
 
-  // Raw Low-Level Transport (Single transmit)
-  const rawTransmit = async (payload: string, rawCmd: string, isStream?: boolean): Promise<boolean> => {
+  // Direct, Bulletproof Send Command
+  const sendCommand = async (rawCmd: string, label?: string) => {
+    triggerHaptic();
+
+    let payload = rawCmd;
+    if (lineEnding === "nl") payload += "\n";
+    else if (lineEnding === "crnl") payload += "\r\n";
+    else if (lineEnding === "cr") payload += "\r";
+
+    // Immediate state updates
+    if (rawCmd === "F") {
+      setDriveState("F");
+      setLastAction("FORWARD ('F')");
+    } else if (rawCmd === "B") {
+      setDriveState("B");
+      setLastAction("REVERSE ('B')");
+    } else if (rawCmd === "L") {
+      setDriveState("L");
+      setLastAction("LEFT ('L')");
+    } else if (rawCmd === "R") {
+      setDriveState("R");
+      setLastAction("RIGHT ('R')");
+    } else if (rawCmd === "S") {
+      setDriveState("STOP");
+      setLastAction("STOP ('S')");
+    } else {
+      setLastAction(label || `Sent '${rawCmd}'`);
+    }
+
+    setCommandHistory((prev) => [rawCmd, ...prev.slice(0, 20)]);
+    setHistoryIndex(-1);
+
+    const displayText = displayMode === "hex" ? stringToHex(payload) : rawCmd;
+    addMessage(displayText, "tx");
+
     // 1. Web Bluetooth Transmit
     if (connectionType === "webbluetooth" && gattTxCharRef.current) {
-      try {
-        const encoder = new TextEncoder();
-        await gattTxCharRef.current.writeValue(encoder.encode(payload));
-        return true;
-      } catch (err: unknown) {
-        if (!isStream) {
-          addMessage(`BLE TX Error: ${err instanceof Error ? err.message : String(err)}`, "error");
+      if (!isWritingRef.current) {
+        isWritingRef.current = true;
+        try {
+          const encoder = new TextEncoder();
+          const data = encoder.encode(payload);
+          if (gattTxCharRef.current.writeValueWithoutResponse) {
+            await gattTxCharRef.current.writeValueWithoutResponse(data);
+          } else {
+            await gattTxCharRef.current.writeValue(data);
+          }
+        } catch (err: unknown) {
+          addMessage(`BLE TX Note: ${err instanceof Error ? err.message : String(err)}`, "error");
+        } finally {
+          isWritingRef.current = false;
         }
-        return false;
       }
     }
 
@@ -282,124 +340,24 @@ export default function Home() {
     if (connectionType === "webserial" && serialWriterRef.current) {
       try {
         await serialWriterRef.current.write(payload);
-        return true;
       } catch (err: unknown) {
-        if (!isStream) {
-          addMessage(`Serial TX Error: ${err instanceof Error ? err.message : String(err)}`, "error");
-        }
-        return false;
+        addMessage(`Serial TX Error: ${err instanceof Error ? err.message : String(err)}`, "error");
       }
     }
 
-    // 3. Backend Fallback
+    // 3. Backend Fallback (Local API if running on PC with USB)
     try {
-      await fetch("/api/led", {
+      fetch("/api/led", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ command: rawCmd }),
-      });
-      return true;
+      }).catch(() => {});
     } catch {
-      return false;
+      // Ignore
     }
   };
 
-  // High-Level Sequential Command Dispatcher with Mutex (Never crashes into GATT collisions)
-  const sendCommand = async (rawCmd: string, label?: string, isStream?: boolean) => {
-    // If a write is currently in progress, buffer this command so it is sent immediately after
-    if (isSendingRef.current) {
-      pendingCmdRef.current = { rawCmd, label, isStream };
-      return;
-    }
-
-    isSendingRef.current = true;
-
-    try {
-      let currentCmd: { rawCmd: string; label?: string; isStream?: boolean } | null = { rawCmd, label, isStream };
-
-      while (currentCmd) {
-        const { rawCmd: cmd, label: lbl, isStream: stream } = currentCmd;
-        currentCmd = null;
-
-        let payload = cmd;
-        if (lineEnding === "nl") payload += "\n";
-        else if (lineEnding === "crnl") payload += "\r\n";
-        else if (lineEnding === "cr") payload += "\r";
-
-        // Update last action status
-        if (cmd === "F") setLastAction("FORWARD ('F')");
-        else if (cmd === "B") setLastAction("REVERSE ('B')");
-        else if (cmd === "L") setLastAction("SPIN LEFT ('L')");
-        else if (cmd === "R") setLastAction("SPIN RIGHT ('R')");
-        else if (cmd === "S") setLastAction("STOP / BRAKE ('S')");
-        else setLastAction(lbl || `Sent '${cmd}'`);
-
-        if (!stream) {
-          triggerHaptic();
-          setCommandHistory((prev) => [cmd, ...prev.slice(0, 20)]);
-          setHistoryIndex(-1);
-          const displayText = displayMode === "hex" ? stringToHex(payload) : cmd;
-          addMessage(displayText, "tx");
-        }
-
-        await rawTransmit(payload, cmd, stream);
-
-        // If another command arrived while transmitting, pick it up sequentially
-        if (pendingCmdRef.current) {
-          currentCmd = pendingCmdRef.current;
-          pendingCmdRef.current = null;
-        }
-      }
-    } finally {
-      isSendingRef.current = false;
-    }
-  };
-
-  // Motion Handlers for TAP MODE (Click once to drive continuously until Stop or new direction)
-  const handleMotionClick = (cmd: "F" | "B" | "L" | "R") => {
-    if (driveIntervalRef.current) {
-      clearInterval(driveIntervalRef.current);
-      driveIntervalRef.current = null;
-    }
-    activeDriveCmdRef.current = cmd;
-    setDriveState(cmd);
-    sendCommand(cmd);
-  };
-
-  // Motion Handlers for HOLD MODE (Drive while holding button down)
-  const handleMotionDown = (cmd: "F" | "B" | "L" | "R") => {
-    if (driveIntervalRef.current) {
-      clearInterval(driveIntervalRef.current);
-      driveIntervalRef.current = null;
-    }
-
-    activeDriveCmdRef.current = cmd;
-    setDriveState(cmd);
-
-    // Initial instant write
-    sendCommand(cmd);
-
-    // Safe 160ms heartbeat interval while held (only sends if not currently busy)
-    driveIntervalRef.current = setInterval(() => {
-      if (!isSendingRef.current) {
-        sendCommand(cmd, undefined, true);
-      }
-    }, 160);
-  };
-
-  // Stop / Brake (Stops all 4 motors and clears all intervals)
-  const stopDriving = () => {
-    if (driveIntervalRef.current) {
-      clearInterval(driveIntervalRef.current);
-      driveIntervalRef.current = null;
-    }
-
-    activeDriveCmdRef.current = null;
-    setDriveState("STOP");
-    sendCommand("S", "STOP ('S')");
-  };
-
-  // Keyboard driving listener (Arrow keys & WASD)
+  // Keyboard navigation listener (Arrow keys & WASD driving support)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
@@ -410,55 +368,27 @@ export default function Home() {
       const key = e.key.toLowerCase();
       if (key === "arrowup" || key === "w") {
         e.preventDefault();
-        if (driveMode === "hold") handleMotionDown("F");
-        else handleMotionClick("F");
+        sendCommand("F");
       } else if (key === "arrowdown" || key === "s") {
         e.preventDefault();
-        if (driveMode === "hold") handleMotionDown("B");
-        else handleMotionClick("B");
+        sendCommand("B");
       } else if (key === "arrowleft" || key === "a") {
         e.preventDefault();
-        if (driveMode === "hold") handleMotionDown("L");
-        else handleMotionClick("L");
+        sendCommand("L");
       } else if (key === "arrowright" || key === "d") {
         e.preventDefault();
-        if (driveMode === "hold") handleMotionDown("R");
-        else handleMotionClick("R");
+        sendCommand("R");
       } else if (key === " " || key === "escape") {
         e.preventDefault();
-        stopDriving();
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-
-      // If in hold mode, releasing key stops the car
-      if (driveMode === "hold") {
-        const key = e.key.toLowerCase();
-        if (
-          ((key === "arrowup" || key === "w") && activeDriveCmdRef.current === "F") ||
-          ((key === "arrowdown" || key === "s") && activeDriveCmdRef.current === "B") ||
-          ((key === "arrowleft" || key === "a") && activeDriveCmdRef.current === "L") ||
-          ((key === "arrowright" || key === "d") && activeDriveCmdRef.current === "R")
-        ) {
-          e.preventDefault();
-          stopDriving();
-        }
+        sendCommand("S");
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-      if (driveIntervalRef.current) clearInterval(driveIntervalRef.current);
     };
-  }, [driveMode]);
+  }, []);
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -615,7 +545,7 @@ export default function Home() {
                 </button>
                 <button
                   onClick={connectWebSerial}
-                  title="Serial port (PC)"
+                  title="Serial port (PC / SPP)"
                   className={`px-2 py-1 rounded-md text-xs font-semibold border transition cursor-pointer ${
                     isDark
                       ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700"
@@ -641,7 +571,7 @@ export default function Home() {
         {/* ============================================================ */}
         {activeTab === "remote" && (
           <div
-            className={`rounded-md border p-2 sm:p-3 space-y-2.5 transition-all select-none ${
+            className={`rounded-md border p-2 sm:p-3 space-y-2.5 transition-all ${
               isDark
                 ? "bg-zinc-900 border-zinc-800"
                 : "bg-white border-slate-300"
@@ -699,53 +629,8 @@ export default function Home() {
                 </span>
               </div>
               <span className="text-[10px] opacity-75">
-                {driveState !== "STOP" ? (driveMode === "hold" ? "Streaming" : "Latched") : "Brake Engaged"}
+                {driveState !== "STOP" ? "Active" : "Brake Ready"}
               </span>
-            </div>
-
-            {/* Drive Mode Selector: Tap to Drive vs Hold to Drive */}
-            <div
-              className={`flex items-center justify-between p-1.5 rounded-md border text-xs ${
-                isDark ? "bg-zinc-950 border-zinc-800" : "bg-slate-100 border-slate-200"
-              }`}
-            >
-              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
-                Drive Mode:
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => {
-                    triggerHaptic();
-                    setDriveMode("tap");
-                    stopDriving();
-                  }}
-                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer border ${
-                    driveMode === "tap"
-                      ? isDark
-                        ? "bg-zinc-800 text-white border-zinc-700"
-                        : "bg-white text-slate-900 border-slate-300"
-                      : "border-transparent text-zinc-500 hover:text-zinc-400"
-                  }`}
-                >
-                  ● Tap to Drive
-                </button>
-                <button
-                  onClick={() => {
-                    triggerHaptic();
-                    setDriveMode("hold");
-                    stopDriving();
-                  }}
-                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer border ${
-                    driveMode === "hold"
-                      ? isDark
-                        ? "bg-zinc-800 text-white border-zinc-700"
-                        : "bg-white text-slate-900 border-slate-300"
-                      : "border-transparent text-zinc-500 hover:text-zinc-400"
-                  }`}
-                >
-                  Hold to Drive
-                </button>
-              </div>
             </div>
 
             {/* ============================================================ */}
@@ -761,7 +646,7 @@ export default function Home() {
                   4-Motor Motion Pad
                 </span>
                 <span className={`text-[9px] font-mono ${isDark ? "text-zinc-500" : "text-slate-400"}`}>
-                  {driveMode === "tap" ? "Tap moves • Tap Stop halts" : "Press & hold to run"}
+                  Tap to drive • Tap Stop to brake
                 </span>
               </div>
 
@@ -772,35 +657,9 @@ export default function Home() {
 
                 {/* FORWARD BUTTON */}
                 <button
-                  onClick={() => {
-                    if (driveMode === "tap") handleMotionClick("F");
-                  }}
-                  onPointerDown={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      handleMotionDown("F");
-                    }
-                  }}
-                  onPointerUp={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onPointerLeave={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onPointerCancel={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onContextMenu={(e) => e.preventDefault()}
-                  className={`py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
+                  type="button"
+                  onClick={() => sendCommand("F")}
+                  className={`py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition cursor-pointer active:scale-95 flex flex-col items-center justify-center ${
                     driveState === "F"
                       ? "bg-emerald-600 text-white border-emerald-500 ring-2 ring-emerald-500/40"
                       : isDark
@@ -818,35 +677,9 @@ export default function Home() {
                 {/* Row 2: LEFT | STOP / BRAKE | RIGHT */}
                 {/* LEFT BUTTON */}
                 <button
-                  onClick={() => {
-                    if (driveMode === "tap") handleMotionClick("L");
-                  }}
-                  onPointerDown={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      handleMotionDown("L");
-                    }
-                  }}
-                  onPointerUp={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onPointerLeave={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onPointerCancel={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onContextMenu={(e) => e.preventDefault()}
-                  className={`py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
+                  type="button"
+                  onClick={() => sendCommand("L")}
+                  className={`py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition cursor-pointer active:scale-95 flex flex-col items-center justify-center ${
                     driveState === "L"
                       ? "bg-cyan-600 text-white border-cyan-500 ring-2 ring-cyan-500/40"
                       : isDark
@@ -861,16 +694,9 @@ export default function Home() {
 
                 {/* EMERGENCY STOP BUTTON */}
                 <button
-                  onClick={() => {
-                    triggerHaptic();
-                    stopDriving();
-                  }}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    stopDriving();
-                  }}
-                  onContextMenu={(e) => e.preventDefault()}
-                  className="py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border border-rose-600 bg-rose-600 hover:bg-rose-500 text-white cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center"
+                  type="button"
+                  onClick={() => sendCommand("S")}
+                  className="py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border border-rose-600 bg-rose-600 hover:bg-rose-500 text-white cursor-pointer active:scale-95 flex flex-col items-center justify-center"
                 >
                   <span className="text-lg leading-none">🛑</span>
                   <span className="text-xs font-black mt-1">STOP</span>
@@ -879,35 +705,9 @@ export default function Home() {
 
                 {/* RIGHT BUTTON */}
                 <button
-                  onClick={() => {
-                    if (driveMode === "tap") handleMotionClick("R");
-                  }}
-                  onPointerDown={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      handleMotionDown("R");
-                    }
-                  }}
-                  onPointerUp={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onPointerLeave={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onPointerCancel={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onContextMenu={(e) => e.preventDefault()}
-                  className={`py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
+                  type="button"
+                  onClick={() => sendCommand("R")}
+                  className={`py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition cursor-pointer active:scale-95 flex flex-col items-center justify-center ${
                     driveState === "R"
                       ? "bg-cyan-600 text-white border-cyan-500 ring-2 ring-cyan-500/40"
                       : isDark
@@ -923,34 +723,8 @@ export default function Home() {
                 {/* Row 3: SPIN LEFT | REVERSE | SPIN RIGHT */}
                 {/* SPIN LEFT */}
                 <button
-                  onClick={() => {
-                    if (driveMode === "tap") handleMotionClick("L");
-                  }}
-                  onPointerDown={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      handleMotionDown("L");
-                    }
-                  }}
-                  onPointerUp={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onPointerLeave={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onPointerCancel={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onContextMenu={(e) => e.preventDefault()}
+                  type="button"
+                  onClick={() => sendCommand("L")}
                   className={`py-2 px-1 rounded-md font-bold text-[10px] uppercase border transition active:scale-95 cursor-pointer flex flex-col items-center justify-center ${
                     driveState === "L"
                       ? "bg-cyan-500/20 border-cyan-500 text-cyan-500"
@@ -965,35 +739,9 @@ export default function Home() {
 
                 {/* REVERSE BUTTON */}
                 <button
-                  onClick={() => {
-                    if (driveMode === "tap") handleMotionClick("B");
-                  }}
-                  onPointerDown={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      handleMotionDown("B");
-                    }
-                  }}
-                  onPointerUp={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onPointerLeave={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onPointerCancel={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onContextMenu={(e) => e.preventDefault()}
-                  className={`py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
+                  type="button"
+                  onClick={() => sendCommand("B")}
+                  className={`py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition cursor-pointer active:scale-95 flex flex-col items-center justify-center ${
                     driveState === "B"
                       ? "bg-amber-600 text-white border-amber-500 ring-2 ring-amber-500/40"
                       : isDark
@@ -1008,34 +756,8 @@ export default function Home() {
 
                 {/* SPIN RIGHT */}
                 <button
-                  onClick={() => {
-                    if (driveMode === "tap") handleMotionClick("R");
-                  }}
-                  onPointerDown={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      handleMotionDown("R");
-                    }
-                  }}
-                  onPointerUp={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onPointerLeave={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onPointerCancel={(e) => {
-                    if (driveMode === "hold") {
-                      e.preventDefault();
-                      stopDriving();
-                    }
-                  }}
-                  onContextMenu={(e) => e.preventDefault()}
+                  type="button"
+                  onClick={() => sendCommand("R")}
                   className={`py-2 px-1 rounded-md font-bold text-[10px] uppercase border transition active:scale-95 cursor-pointer flex flex-col items-center justify-center ${
                     driveState === "R"
                       ? "bg-cyan-500/20 border-cyan-500 text-cyan-500"
@@ -1051,10 +773,8 @@ export default function Home() {
 
               {/* Master Brake Button */}
               <button
-                onClick={() => {
-                  triggerHaptic();
-                  stopDriving();
-                }}
+                type="button"
+                onClick={() => sendCommand("S")}
                 className={`w-full py-2 rounded-md font-bold text-xs tracking-wider uppercase border transition cursor-pointer flex items-center justify-center gap-1.5 ${
                   isDark
                     ? "bg-zinc-900 border-zinc-800 hover:bg-zinc-800 text-rose-400"
@@ -1237,30 +957,35 @@ export default function Home() {
                 RC Macros:
               </span>
               <button
+                type="button"
                 onClick={() => sendCommand("F")}
                 className="px-2 py-0.5 rounded-md bg-emerald-600/10 text-emerald-600 border border-emerald-500/30 text-[11px] font-mono font-bold hover:bg-emerald-600/20 cursor-pointer"
               >
                 Fwd (F)
               </button>
               <button
+                type="button"
                 onClick={() => sendCommand("B")}
                 className="px-2 py-0.5 rounded-md bg-amber-600/10 text-amber-600 border border-amber-500/30 text-[11px] font-mono font-bold hover:bg-amber-600/20 cursor-pointer"
               >
                 Back (B)
               </button>
               <button
+                type="button"
                 onClick={() => sendCommand("L")}
                 className="px-2 py-0.5 rounded-md bg-cyan-600/10 text-cyan-600 border border-cyan-500/30 text-[11px] font-mono font-bold hover:bg-cyan-600/20 cursor-pointer"
               >
                 Left (L)
               </button>
               <button
+                type="button"
                 onClick={() => sendCommand("R")}
                 className="px-2 py-0.5 rounded-md bg-cyan-600/10 text-cyan-600 border border-cyan-500/30 text-[11px] font-mono font-bold hover:bg-cyan-600/20 cursor-pointer"
               >
                 Right (R)
               </button>
               <button
+                type="button"
                 onClick={() => sendCommand("S")}
                 className="px-2 py-0.5 rounded-md bg-rose-600/10 text-rose-600 border border-rose-500/30 text-[11px] font-mono font-bold hover:bg-rose-600/20 cursor-pointer"
               >

@@ -1,163 +1,181 @@
 /*
   ========================================================================================
-  🏎️ 4WD RC SMART CAR - ARDUINO UNO + BLUETOOTH FIRMWARE (PURE 4-MOTOR CONTROL)
+  🏎️ 4WD RC SMART CAR - UNIVERSAL ARDUINO UNO + BLUETOOTH FIRMWARE
   ========================================================================================
-  Controller Board:   Arduino Uno (or Nano with identical pinout)
-  Wireless Receiver:  HC-05 Bluetooth Module (9600 Baud)
-  Motor Driver:       L298N Dual H-Bridge Driver Module (ENA & ENB Jumpers Installed)
+  Controller:         Arduino Uno (or Nano)
+  Bluetooth:          HC-05 / HM-10 / JDY (Listens on BOTH Hardware Serial & SoftwareSerial)
+  Motor Driver:       L298N Dual H-Bridge Driver
   Motors:             4x TT DC Gear Motors (2 Left in parallel, 2 Right in parallel)
-  Power Source:       2x 3.7V 18650 Li-ion in series (7.4V nominal, 8.4V full)
-  Power Switch:       2A Rocker/Toggle Switch on Battery (+) line
-  Voltage Regulator:  Buck Converter (tuned to 5.0V output)
+  Power:              2x 3.7V 18650 Li-ion in series (7.4V - 8.4V) + 2A Switch + Buck 5V
   Web Controller:     Bose Remote (https://bluetooth-omega.vercel.app/)
 
   ----------------------------------------------------------------------------------------
-  EXACT PIN CONNECTIONS:
+  PIN ASSIGNMENTS:
   ----------------------------------------------------------------------------------------
-  • Bluetooth Module (HC-05):
-      - VCC  ---> Buck Converter 5.0V Output (or Uno 5V pin)
-      - GND  ---> Common Ground (GND rail)
-      - TXD  ---> Arduino Uno Pin D3 (SoftwareSerial RX)
-      - RXD  ---> Arduino Uno Pin D4 (SoftwareSerial TX through 1kΩ/2kΩ voltage divider)
-      
-      Voltage Divider on HC-05 RXD:
-      Uno Pin D4 (5V) ───[ 1kΩ Resistor ]───┬─── HC-05 RXD (3.3V Logic)
-                                            │
-                                   [ 2kΩ Resistor ]
-                                            │
-                                       Common GND
+  • L298N Motor Driver:
+      - IN1 Pin  ---> Arduino Pin D7  (Left Motors Forward)
+      - IN2 Pin  ---> Arduino Pin D8  (Left Motors Reverse)
+      - IN3 Pin  ---> Arduino Pin D9  (Right Motors Forward)
+      - IN4 Pin  ---> Arduino Pin D10 (Right Motors Reverse)
+      - ENA Pin  ---> Pin D5 (or keep black jumper cap installed on L298N)
+      - ENB Pin  ---> Pin D6 (or keep black jumper cap installed on L298N)
+      - +12V     ---> Battery (+) 7.4V (after 2A Switch)
+      - GND      ---> Common GND (Battery (-), Buck OUT(-), Arduino GND)
+      - +5V      ---> Buck Converter 5.0V Output (Remove 5V-EN jumper on L298N)
 
-  • L298N Dual H-Bridge Driver:
-      - 12V Screw Terminal ---> Battery (+) 7.4V (after the 2A switch)
-      - GND Screw Terminal ---> Common Ground (GND rail)
-      - 5V Screw Terminal  ---> Buck Converter 5.0V Output (REMOVE 5V-EN Jumper!)
-      - ENA & ENB Jumpers  ---> KEEP BOTH JUMPERS ON (Full Speed Drive)
-      - IN1 Pin            ---> Arduino Uno Pin D7 (Left Motors Forward)
-      - IN2 Pin            ---> Arduino Uno Pin D8 (Left Motors Reverse)
-      - IN3 Pin            ---> Arduino Uno Pin D9 (Right Motors Forward)
-      - IN4 Pin            ---> Arduino Uno Pin D10 (Right Motors Reverse)
+  • Bluetooth Module (HC-05 / HM-10):
+      - VCC ---> Buck Converter 5.0V (or Uno 5V)
+      - GND ---> Common GND
+      - Option A (SoftwareSerial):
+          * HC-05 TXD ---> Arduino Pin D3 (RX)
+          * HC-05 RXD ---> Arduino Pin D4 (TX via 1k/2k divider)
+      - Option B (Hardware Serial):
+          * HC-05 TXD ---> Arduino Pin D0 (RX)
+          * HC-05 RXD ---> Arduino Pin D1 (TX via 1k/2k divider)
+      *(NOTE: This code listens to BOTH Option A and Option B automatically!)*
 
-  • 4x TT DC Gear Motors (Wired in Parallel):
-      - Left Front + Left Rear Motors   ---> L298N OUT1 & OUT2
-      - Right Front + Right Rear Motors ---> L298N OUT3 & OUT4
+  • Built-in LED:
+      - Pin D13 (LED_BUILTIN): Lights up whenever car is driving!
   ========================================================================================
 */
 
 #include <SoftwareSerial.h>
 
-// --------------------------------------------------------------------------------------
-// 1. PIN ALLOCATION
-// --------------------------------------------------------------------------------------
-
-// Bluetooth Serial (TXD on module -> Pin 3, RXD on module -> Pin 4 via divider)
+// 1. PIN CONFIGURATION
+// SoftwareSerial option on Pins 3 and 4
 SoftwareSerial bt(3, 4); // RX = D3, TX = D4
 
-// L298N Direction Logic Pins
-#define IN1 7  // Left Motors Forward
-#define IN2 8  // Left Motors Reverse
-#define IN3 9  // Right Motors Forward
-#define IN4 10 // Right Motors Reverse
+// L298N Direction Pins
+#define IN1 7
+#define IN2 8
+#define IN3 9
+#define IN4 10
 
-// --------------------------------------------------------------------------------------
-// 2. TIMING & SAFETY WATCHDOG
-// --------------------------------------------------------------------------------------
+// L298N Speed Enable Pins (Keeps motors active even if user wired ENA/ENB to Uno instead of jumpers)
+#define ENA_PIN 5
+#define ENB_PIN 6
+
+// Safety Watchdog (stops car if connection drops for > 3.0s while moving)
 unsigned long lastCmdTime = 0;
-// Safety failsafe: If connection is lost or no command received for 2.5s while moving, auto-stop.
-const unsigned long SAFETY_TIMEOUT_MS = 2500;
+const unsigned long SAFETY_TIMEOUT_MS = 3000;
 bool isMoving = false;
 
-// --------------------------------------------------------------------------------------
-// 3. MOTOR DRIVE PRIMITIVES
-// --------------------------------------------------------------------------------------
-
-/**
- * Low-level motor controller
- * @param l1 Left Forward
- * @param l2 Left Reverse
- * @param r1 Right Forward
- * @param r2 Right Reverse
- */
+// 2. MOTOR CONTROL FUNCTIONS
 void drive(bool l1, bool l2, bool r1, bool r2) {
+  // Ensure speed enables are active
+  digitalWrite(ENA_PIN, HIGH);
+  digitalWrite(ENB_PIN, HIGH);
+
+  // Set direction pins
   digitalWrite(IN1, l1);
   digitalWrite(IN2, l2);
   digitalWrite(IN3, r1);
   digitalWrite(IN4, r2);
-  
+
   if (l1 == 0 && l2 == 0 && r1 == 0 && r2 == 0) {
     isMoving = false;
+    digitalWrite(LED_BUILTIN, LOW); // LED OFF = STOPPED
   } else {
     isMoving = true;
+    digitalWrite(LED_BUILTIN, HIGH); // LED ON = MOTORS RUNNING
   }
 }
 
-// --------------------------------------------------------------------------------------
-// 4. SETUP INITIALIZATION
-// --------------------------------------------------------------------------------------
 void setup() {
-  // Initialize Motor Direction Pins
+  // Initialize Direction Pins
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
 
-  // Initialize Bluetooth Communication at 9600 Baud
-  bt.begin(9600);
-  
-  // Initialize Hardware USB Serial for PC debugging
-  Serial.begin(9600);
-  Serial.println(F("[RC CAR] 4WD Arduino Uno Initialized."));
+  // Initialize Enable Pins
+  pinMode(ENA_PIN, OUTPUT);
+  pinMode(ENB_PIN, OUTPUT);
+  digitalWrite(ENA_PIN, HIGH);
+  digitalWrite(ENB_PIN, HIGH);
 
-  // Ensure all motors start completely stopped
+  // Initialize Built-in Status Indicator LED (Pin 13)
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
+
+  // Initialize SoftwareSerial for HC-05 (Pins 3 & 4)
+  bt.begin(9600);
+
+  // Initialize Hardware Serial (Pins 0 & 1 and USB cable)
+  Serial.begin(9600);
+  Serial.println(F("=================================================="));
+  Serial.println(F("🏎️ 4WD RC Car Initialized (Hardware + Software Serial)"));
+  Serial.println(F("Listening for commands: F, B, L, R, S"));
+  Serial.println(F("=================================================="));
+
+  // Start with all motors stopped
   drive(0, 0, 0, 0);
   lastCmdTime = millis();
 }
 
-// --------------------------------------------------------------------------------------
-// 5. MAIN NON-BLOCKING EVENT LOOP
-// --------------------------------------------------------------------------------------
 void loop() {
-  // A. Read incoming Bluetooth commands
-  while (bt.available()) {
-    char c = bt.read();
-    lastCmdTime = millis(); // Refresh watchdog timer on every received command
+  char c = 0;
+
+  // Read from SoftwareSerial (HC-05 on pins 3/4)
+  if (bt.available()) {
+    c = bt.read();
+  }
+  // OR read from Hardware Serial (HC-05 on pins 0/1 or PC USB Serial)
+  else if (Serial.available()) {
+    c = Serial.read();
+  }
+
+  // If a command character arrived:
+  if (c != 0 && c != '\r' && c != '\n' && c != ' ') {
+    lastCmdTime = millis(); // Refresh watchdog
 
     switch (c) {
-      // Motion Driving Commands (4 Motors Only)
-      case 'F': // Drive Forward (All 4 Motors Forward)
+      case 'F':
+      case 'f': // FORWARD
         drive(1, 0, 1, 0);
-        bt.println(F("MOTORS: FWD"));
+        Serial.println(F("[MOTORS] >>> FORWARD (F)"));
+        bt.println(F("[MOTORS] >>> FORWARD (F)"));
         break;
 
-      case 'B': // Drive Backward (All 4 Motors Reverse)
+      case 'B':
+      case 'b': // REVERSE
         drive(0, 1, 0, 1);
-        bt.println(F("MOTORS: REV"));
+        Serial.println(F("[MOTORS] <<< REVERSE (B)"));
+        bt.println(F("[MOTORS] <<< REVERSE (B)"));
         break;
 
-      case 'L': // Turn Left (Left Reverse, Right Forward)
+      case 'L':
+      case 'l': // SPIN LEFT (Left reverse, Right forward)
         drive(0, 1, 1, 0);
-        bt.println(F("MOTORS: LEFT"));
+        Serial.println(F("[MOTORS] <== SPIN LEFT (L)"));
+        bt.println(F("[MOTORS] <== SPIN LEFT (L)"));
         break;
 
-      case 'R': // Turn Right (Left Forward, Right Reverse)
+      case 'R':
+      case 'r': // SPIN RIGHT (Left forward, Right reverse)
         drive(1, 0, 0, 1);
-        bt.println(F("MOTORS: RIGHT"));
+        Serial.println(F("[MOTORS] ==> SPIN RIGHT (R)"));
+        bt.println(F("[MOTORS] ==> SPIN RIGHT (R)"));
         break;
 
-      case 'S': // Electronic Brake / Full Stop (All 4 Motors OFF)
+      case 'S':
+      case 's': // STOP / BRAKE
         drive(0, 0, 0, 0);
-        bt.println(F("MOTORS: STOP"));
+        Serial.println(F("[MOTORS] [🛑] STOP (S)"));
+        bt.println(F("[MOTORS] [🛑] STOP (S)"));
         break;
 
       default:
-        // Ignore linefeeds or carriage returns
+        Serial.print(F("[UNKNOWN CMD] Received: "));
+        Serial.println(c);
         break;
     }
   }
 
-  // B. Safety Watchdog: Auto-Brake if Bluetooth signal is completely lost for 2.5s
-  // Prevents runaway car if user drives out of Bluetooth range
+  // Safety Watchdog: If car has been driving for > 3s without any signal, safe-stop
   if (isMoving && (millis() - lastCmdTime > SAFETY_TIMEOUT_MS)) {
     drive(0, 0, 0, 0);
-    bt.println(F("WATCHDOG: SAFE STOP"));
+    Serial.println(F("[WATCHDOG] Connection silence > 3s -> Safe Brake"));
+    bt.println(F("[WATCHDOG] Connection silence > 3s -> Safe Brake"));
   }
 }
