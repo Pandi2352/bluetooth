@@ -22,6 +22,11 @@ export default function Home() {
   const [connectedDeviceName, setConnectedDeviceName] = useState<string | null>(null);
   const [connectionType, setConnectionType] = useState<"webbluetooth" | "webserial" | "backend" | null>(null);
 
+  // RC Car Driving states ('F' = Forward, 'B' = Reverse, 'L' = Left, 'R' = Right, 'STOP' = Brake)
+  const [driveState, setDriveState] = useState<"STOP" | "F" | "B" | "L" | "R">("STOP");
+  const driveIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const activeDriveCmdRef = useRef<string | null>(null);
+
   // Dual LED states
   const [led1On, setLed1On] = useState(false); // Pin 2 ('1' = ON, '0' = OFF)
   const [led2On, setLed2On] = useState(false); // Pin 3 ('2' = ON, '3' = OFF)
@@ -254,17 +259,25 @@ export default function Home() {
     addMessage("Disconnected.", "system");
   };
 
-  // Send Command ('1', '0', '2', '3' or custom)
-  const sendCommand = async (rawCmd: string, label?: string) => {
-    triggerHaptic();
-
+  // Send Command ('F', 'B', 'L', 'R', 'S', '1', '0', etc.)
+  const sendCommand = async (rawCmd: string, label?: string, isStream?: boolean) => {
     let payload = rawCmd;
     if (lineEnding === "nl") payload += "\n";
     else if (lineEnding === "crnl") payload += "\r\n";
     else if (lineEnding === "cr") payload += "\r";
 
-    // Track internal LED status
-    if (rawCmd === "1") {
+    // Track internal action status
+    if (rawCmd === "F") {
+      setLastAction("FORWARD ('F')");
+    } else if (rawCmd === "B") {
+      setLastAction("BACKWARD ('B')");
+    } else if (rawCmd === "L") {
+      setLastAction("SPIN LEFT ('L')");
+    } else if (rawCmd === "R") {
+      setLastAction("SPIN RIGHT ('R')");
+    } else if (rawCmd === "S") {
+      setLastAction("STOP / BRAKE ('S')");
+    } else if (rawCmd === "1") {
       setLed1On(true);
       setLastAction("LED 1 ON ('1')");
     } else if (rawCmd === "0") {
@@ -280,12 +293,14 @@ export default function Home() {
       setLastAction(label || `Sent '${rawCmd}'`);
     }
 
-    // Save in history
-    setCommandHistory((prev) => [rawCmd, ...prev.slice(0, 20)]);
-    setHistoryIndex(-1);
-
-    const displayText = displayMode === "hex" ? stringToHex(payload) : rawCmd;
-    addMessage(displayText, "tx");
+    // Only log and vibrate on new command, not repetitive 100ms stream heartbeats
+    if (!isStream) {
+      triggerHaptic();
+      setCommandHistory((prev) => [rawCmd, ...prev.slice(0, 20)]);
+      setHistoryIndex(-1);
+      const displayText = displayMode === "hex" ? stringToHex(payload) : rawCmd;
+      addMessage(displayText, "tx");
+    }
 
     // 1. Web Bluetooth Transmit
     if (connectionType === "webbluetooth" && gattTxCharRef.current) {
@@ -294,7 +309,9 @@ export default function Home() {
         await gattTxCharRef.current.writeValue(encoder.encode(payload));
         return;
       } catch (err: unknown) {
-        addMessage(`BLE TX Error: ${err instanceof Error ? err.message : String(err)}`, "error");
+        if (!isStream) {
+          addMessage(`BLE TX Error: ${err instanceof Error ? err.message : String(err)}`, "error");
+        }
       }
     }
 
@@ -304,7 +321,9 @@ export default function Home() {
         await serialWriterRef.current.write(payload);
         return;
       } catch (err: unknown) {
-        addMessage(`Serial TX Error: ${err instanceof Error ? err.message : String(err)}`, "error");
+        if (!isStream) {
+          addMessage(`Serial TX Error: ${err instanceof Error ? err.message : String(err)}`, "error");
+        }
       }
     }
 
@@ -319,6 +338,93 @@ export default function Home() {
       // Offline/client-only
     }
   };
+
+  // RC Car Continuous Drive Streamer (Repeats every 100ms so Arduino 400ms watchdog stays fed)
+  const startDriving = (cmd: "F" | "B" | "L" | "R") => {
+    if (activeDriveCmdRef.current === cmd) return;
+
+    if (driveIntervalRef.current) {
+      clearInterval(driveIntervalRef.current);
+      driveIntervalRef.current = null;
+    }
+
+    activeDriveCmdRef.current = cmd;
+    setDriveState(cmd);
+
+    // Immediate first transmission (with haptic & logging)
+    sendCommand(cmd);
+
+    // Continuous 100ms stream while button is held down
+    driveIntervalRef.current = setInterval(() => {
+      sendCommand(cmd, undefined, true);
+    }, 100);
+  };
+
+  // Release button / Stop Driving -> engages Electronic Brake
+  const stopDriving = () => {
+    if (driveIntervalRef.current) {
+      clearInterval(driveIntervalRef.current);
+      driveIntervalRef.current = null;
+    }
+
+    activeDriveCmdRef.current = null;
+    setDriveState("STOP");
+    sendCommand("S", "STOP ('S')");
+  };
+
+  // Keyboard navigation listener (Arrow keys & WASD driving support)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      if (e.repeat) return;
+
+      const key = e.key.toLowerCase();
+      if (key === "arrowup" || key === "w") {
+        e.preventDefault();
+        startDriving("F");
+      } else if (key === "arrowdown" || key === "s") {
+        e.preventDefault();
+        startDriving("B");
+      } else if (key === "arrowleft" || key === "a") {
+        e.preventDefault();
+        startDriving("L");
+      } else if (key === "arrowright" || key === "d") {
+        e.preventDefault();
+        startDriving("R");
+      } else if (key === " " || key === "escape") {
+        e.preventDefault();
+        stopDriving();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+      if (
+        ((key === "arrowup" || key === "w") && activeDriveCmdRef.current === "F") ||
+        ((key === "arrowdown" || key === "s") && activeDriveCmdRef.current === "B") ||
+        ((key === "arrowleft" || key === "a") && activeDriveCmdRef.current === "L") ||
+        ((key === "arrowright" || key === "d") && activeDriveCmdRef.current === "R")
+      ) {
+        e.preventDefault();
+        stopDriving();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      if (driveIntervalRef.current) clearInterval(driveIntervalRef.current);
+    };
+  }, []);
 
   const handleAllOn = () => {
     sendCommand("1");
@@ -503,7 +609,7 @@ export default function Home() {
         {/* ============================================================ */}
         {activeTab === "remote" && (
           <div
-            className={`rounded-md border p-2 sm:p-3.5 space-y-2 transition-all ${
+            className={`rounded-md border p-2 sm:p-3 space-y-2.5 transition-all select-none ${
               isDark
                 ? "bg-zinc-900 border-zinc-800"
                 : "bg-white border-slate-300"
@@ -523,183 +629,278 @@ export default function Home() {
                   Bose remote
                 </span>
                 <span className={`text-[10px] font-semibold ${isDark ? "text-zinc-500" : "text-slate-400"}`}>
-                  • Dual Channel
+                  • 4WD RC Car
                 </span>
               </div>
             </div>
 
-            {/* Master Power Bar: ALL ON / ALL OFF */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={handleAllOn}
-                className={`py-2 px-3 rounded-md font-bold text-xs tracking-wider flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer border ${
-                  isDark
-                    ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-400 hover:bg-emerald-900/50"
-                    : "bg-emerald-50 border-emerald-300 text-emerald-700 hover:bg-emerald-100"
-                }`}
-              >
-                <span>⚡</span> ALL ON (1+2)
-              </button>
-
-              <button
-                onClick={handleAllOff}
-                className={`py-2 px-3 rounded-md font-bold text-xs tracking-wider flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer border ${
-                  isDark
-                    ? "bg-rose-950/40 border-rose-500/40 text-rose-400 hover:bg-rose-900/50"
-                    : "bg-rose-50 border-rose-300 text-rose-700 hover:bg-rose-100"
-                }`}
-              >
-                <span>⭕</span> ALL OFF (0+3)
-              </button>
+            {/* Live Drive State Pill */}
+            <div
+              className={`p-2 rounded-md border flex items-center justify-between text-xs font-mono font-bold transition-all ${
+                driveState === "F"
+                  ? "bg-emerald-500/10 border-emerald-500/40 text-emerald-500"
+                  : driveState === "B"
+                  ? "bg-amber-500/10 border-amber-500/40 text-amber-500"
+                  : driveState === "L" || driveState === "R"
+                  ? "bg-cyan-500/10 border-cyan-500/40 text-cyan-500"
+                  : isDark
+                  ? "bg-zinc-950 border-zinc-800 text-zinc-400"
+                  : "bg-slate-50 border-slate-200 text-slate-600"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className={`w-2 h-2 rounded-md ${
+                    driveState !== "STOP" ? "bg-emerald-500 animate-pulse" : "bg-zinc-400"
+                  }`}
+                />
+                <span>
+                  {driveState === "F"
+                    ? "▲ DRIVING FORWARD ('F')"
+                    : driveState === "B"
+                    ? "▼ REVERSING ('B')"
+                    : driveState === "L"
+                    ? "◄ SPINNING LEFT ('L')"
+                    : driveState === "R"
+                    ? "► SPINNING RIGHT ('R')"
+                    : "🛑 STOPPED / NEUTRAL ('S')"}
+                </span>
+              </div>
+              <span className="text-[10px] opacity-75">
+                {driveState !== "STOP" ? "Streaming 100ms" : "Watchdog Ready"}
+              </span>
             </div>
 
-            {/* Channel 1 (LED 1 • Pin 2) */}
+            {/* ============================================================ */}
+            {/* TACTILE RC D-PAD CONTROLLER (TOUCH & HOLD STREAMING)        */}
+            {/* ============================================================ */}
             <div
-              className={`rounded-md p-2 sm:p-2.5 border space-y-2 transition-all ${
-                isDark
-                  ? "bg-zinc-950 border-zinc-800"
-                  : "bg-slate-50 border-slate-200"
+              className={`p-3 rounded-md border text-center space-y-2 ${
+                isDark ? "bg-zinc-950 border-zinc-800" : "bg-slate-50 border-slate-200"
               }`}
             >
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`w-2.5 h-2.5 rounded-md transition-colors ${
-                      led1On
-                        ? "bg-emerald-500"
-                        : isDark
-                        ? "bg-zinc-800 border border-zinc-700"
-                        : "bg-slate-300 border border-slate-400"
-                    }`}
-                  />
-                  <div>
-                    <h2 className="text-xs font-black tracking-tight">CHANNEL 1 • LED 1</h2>
-                    <p className={`text-[10px] ${isDark ? "text-zinc-500" : "text-slate-500"}`}>
-                      Pin D2 • Command: 1 / 0
-                    </p>
-                  </div>
-                </div>
-
-                <span
-                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${
-                    led1On
-                      ? "bg-emerald-500/20 text-emerald-500 border-emerald-500/30"
-                      : isDark
-                      ? "bg-zinc-900 text-zinc-500 border-zinc-800"
-                      : "bg-white text-slate-400 border-slate-300"
-                  }`}
-                >
-                  {led1On ? "STATE: ON" : "STATE: OFF"}
+                <span className={`text-[10px] font-black uppercase tracking-wider ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
+                  Motion Controls (Touch &amp; Hold)
+                </span>
+                <span className={`text-[9px] font-mono ${isDark ? "text-zinc-500" : "text-slate-400"}`}>
+                  400ms Auto-Brake
                 </span>
               </div>
 
-              {/* Physical Tactile Buttons for LED 1 */}
-              <div className="grid grid-cols-2 gap-2">
+              {/* 3x3 D-Pad Matrix */}
+              <div className="grid grid-cols-3 gap-2 max-w-xs mx-auto">
+                {/* Row 1: Left Headlight Toggle | FORWARD | Right Headlight Toggle */}
                 <button
-                  onClick={() => sendCommand("1")}
-                  className={`py-3 px-2 rounded-md font-black text-xs tracking-wider uppercase transition active:scale-95 cursor-pointer border ${
+                  onClick={() => sendCommand(led1On ? "0" : "1")}
+                  className={`py-3 px-1 rounded-md border font-bold text-[11px] flex flex-col items-center justify-center transition active:scale-95 cursor-pointer ${
                     led1On
-                      ? "bg-emerald-500 text-white border-emerald-600 ring-2 ring-emerald-500/40"
+                      ? "bg-amber-500/20 border-amber-500 text-amber-500"
+                      : isDark
+                      ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"
+                      : "bg-white border-slate-300 text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <span className="text-sm">💡</span>
+                  <span>{led1On ? "LT 1 ON" : "LT 1 OFF"}</span>
+                </button>
+
+                <button
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    startDriving("F");
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    stopDriving();
+                  }}
+                  onPointerLeave={(e) => {
+                    e.preventDefault();
+                    stopDriving();
+                  }}
+                  onPointerCancel={(e) => {
+                    e.preventDefault();
+                    stopDriving();
+                  }}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className={`py-4 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
+                    driveState === "F"
+                      ? "bg-emerald-600 text-white border-emerald-500 ring-2 ring-emerald-500/40"
                       : isDark
                       ? "bg-zinc-800 hover:bg-zinc-700 text-emerald-400 border-zinc-700"
-                      : "bg-white hover:bg-slate-50 text-emerald-600 border-slate-300"
+                      : "bg-white hover:bg-slate-100 text-emerald-600 border-slate-300"
                   }`}
                 >
-                  ON (&apos;1&apos;)
+                  <span className="text-xl leading-none">▲</span>
+                  <span className="text-xs font-bold mt-1">FWD</span>
+                  <span className="text-[9px] font-mono opacity-75">[W / ↑]</span>
                 </button>
 
                 <button
-                  onClick={() => sendCommand("0")}
-                  className={`py-3 px-2 rounded-md font-black text-xs tracking-wider uppercase transition active:scale-95 cursor-pointer border ${
-                    !led1On
-                      ? isDark
-                        ? "bg-zinc-900 text-zinc-600 border-zinc-800"
-                        : "bg-slate-200 text-slate-400 border-slate-300"
-                      : "bg-rose-600 hover:bg-rose-500 text-white border-rose-700"
-                  }`}
-                >
-                  OFF (&apos;0&apos;)
-                </button>
-              </div>
-            </div>
-
-            {/* Channel 2 (LED 2 • Pin 3) */}
-            <div
-              className={`rounded-md p-2 sm:p-2.5 border space-y-2 transition-all ${
-                isDark
-                  ? "bg-zinc-950 border-zinc-800"
-                  : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`w-2.5 h-2.5 rounded-md transition-colors ${
-                      led2On
-                        ? "bg-cyan-500"
-                        : isDark
-                        ? "bg-zinc-800 border border-zinc-700"
-                        : "bg-slate-300 border border-slate-400"
-                    }`}
-                  />
-                  <div>
-                    <h2 className="text-xs font-black tracking-tight">CHANNEL 2 • LED 2</h2>
-                    <p className={`text-[10px] ${isDark ? "text-zinc-500" : "text-slate-500"}`}>
-                      Pin D3 • Command: 2 / 3
-                    </p>
-                  </div>
-                </div>
-
-                <span
-                  className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md border ${
+                  onClick={() => sendCommand(led2On ? "3" : "2")}
+                  className={`py-3 px-1 rounded-md border font-bold text-[11px] flex flex-col items-center justify-center transition active:scale-95 cursor-pointer ${
                     led2On
-                      ? "bg-cyan-500/20 text-cyan-500 border-cyan-500/30"
+                      ? "bg-amber-500/20 border-amber-500 text-amber-500"
                       : isDark
-                      ? "bg-zinc-900 text-zinc-500 border-zinc-800"
-                      : "bg-white text-slate-400 border-slate-300"
+                      ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"
+                      : "bg-white border-slate-300 text-slate-600 hover:text-slate-900"
                   }`}
                 >
-                  {led2On ? "STATE: ON" : "STATE: OFF"}
-                </span>
-              </div>
+                  <span className="text-sm">💡</span>
+                  <span>{led2On ? "LT 2 ON" : "LT 2 OFF"}</span>
+                </button>
 
-              {/* Physical Tactile Buttons for LED 2 */}
-              <div className="grid grid-cols-2 gap-2">
+                {/* Row 2: LEFT | STOP / BRAKE | RIGHT */}
                 <button
-                  onClick={() => sendCommand("2")}
-                  className={`py-3 px-2 rounded-md font-black text-xs tracking-wider uppercase transition active:scale-95 cursor-pointer border ${
-                    led2On
-                      ? "bg-cyan-500 text-white border-cyan-600 ring-2 ring-cyan-500/40"
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    startDriving("L");
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    stopDriving();
+                  }}
+                  onPointerLeave={(e) => {
+                    e.preventDefault();
+                    stopDriving();
+                  }}
+                  onPointerCancel={(e) => {
+                    e.preventDefault();
+                    stopDriving();
+                  }}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className={`py-4 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
+                    driveState === "L"
+                      ? "bg-cyan-600 text-white border-cyan-500 ring-2 ring-cyan-500/40"
                       : isDark
                       ? "bg-zinc-800 hover:bg-zinc-700 text-cyan-400 border-zinc-700"
-                      : "bg-white hover:bg-slate-50 text-cyan-600 border-slate-300"
+                      : "bg-white hover:bg-slate-100 text-cyan-600 border-slate-300"
                   }`}
                 >
-                  ON (&apos;2&apos;)
+                  <span className="text-xl leading-none">◄</span>
+                  <span className="text-xs font-bold mt-1">LEFT</span>
+                  <span className="text-[9px] font-mono opacity-75">[A / ←]</span>
                 </button>
 
                 <button
-                  onClick={() => sendCommand("3")}
-                  className={`py-3 px-2 rounded-md font-black text-xs tracking-wider uppercase transition active:scale-95 cursor-pointer border ${
-                    !led2On
-                      ? isDark
-                        ? "bg-zinc-900 text-zinc-600 border-zinc-800"
-                        : "bg-slate-200 text-slate-400 border-slate-300"
-                      : "bg-rose-600 hover:bg-rose-500 text-white border-rose-700"
+                  onClick={stopDriving}
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    stopDriving();
+                  }}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className="py-4 px-2 rounded-md font-black text-sm tracking-wider uppercase border border-rose-600 bg-rose-600 hover:bg-rose-500 text-white cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center"
+                >
+                  <span className="text-lg leading-none">🛑</span>
+                  <span className="text-xs font-bold mt-1">STOP</span>
+                  <span className="text-[9px] font-mono opacity-80">[SPACE]</span>
+                </button>
+
+                <button
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    startDriving("R");
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    stopDriving();
+                  }}
+                  onPointerLeave={(e) => {
+                    e.preventDefault();
+                    stopDriving();
+                  }}
+                  onPointerCancel={(e) => {
+                    e.preventDefault();
+                    stopDriving();
+                  }}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className={`py-4 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
+                    driveState === "R"
+                      ? "bg-cyan-600 text-white border-cyan-500 ring-2 ring-cyan-500/40"
+                      : isDark
+                      ? "bg-zinc-800 hover:bg-zinc-700 text-cyan-400 border-zinc-700"
+                      : "bg-white hover:bg-slate-100 text-cyan-600 border-slate-300"
                   }`}
                 >
-                  OFF (&apos;3&apos;)
+                  <span className="text-xl leading-none">►</span>
+                  <span className="text-xs font-bold mt-1">RIGHT</span>
+                  <span className="text-[9px] font-mono opacity-75">[D / →]</span>
                 </button>
+
+                {/* Row 3: ALL LIGHTS ON | BACKWARD | ALL LIGHTS OFF */}
+                <button
+                  onClick={handleAllOn}
+                  className={`py-3 px-1 rounded-md border font-bold text-[10px] flex flex-col items-center justify-center transition active:scale-95 cursor-pointer ${
+                    isDark
+                      ? "bg-zinc-900 border-zinc-800 text-emerald-400 hover:bg-zinc-800"
+                      : "bg-white border-slate-300 text-emerald-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="text-sm">⚡</span>
+                  <span>ALL LIGHTS</span>
+                </button>
+
+                <button
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    startDriving("B");
+                  }}
+                  onPointerUp={(e) => {
+                    e.preventDefault();
+                    stopDriving();
+                  }}
+                  onPointerLeave={(e) => {
+                    e.preventDefault();
+                    stopDriving();
+                  }}
+                  onPointerCancel={(e) => {
+                    e.preventDefault();
+                    stopDriving();
+                  }}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className={`py-4 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
+                    driveState === "B"
+                      ? "bg-amber-600 text-white border-amber-500 ring-2 ring-amber-500/40"
+                      : isDark
+                      ? "bg-zinc-800 hover:bg-zinc-700 text-amber-400 border-zinc-700"
+                      : "bg-white hover:bg-slate-100 text-amber-600 border-slate-300"
+                  }`}
+                >
+                  <span className="text-xl leading-none">▼</span>
+                  <span className="text-xs font-bold mt-1">BACK</span>
+                  <span className="text-[9px] font-mono opacity-75">[S / ↓]</span>
+                </button>
+
+                <button
+                  onClick={handleAllOff}
+                  className={`py-3 px-1 rounded-md border font-bold text-[10px] flex flex-col items-center justify-center transition active:scale-95 cursor-pointer ${
+                    isDark
+                      ? "bg-zinc-900 border-zinc-800 text-rose-400 hover:bg-zinc-800"
+                      : "bg-white border-slate-300 text-rose-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="text-sm">⭕</span>
+                  <span>LIGHTS OFF</span>
+                </button>
+              </div>
+
+              {/* Keyboard Driving Guide Footer Pill */}
+              <div
+                className={`pt-1 text-[10px] font-mono ${
+                  isDark ? "text-zinc-500" : "text-slate-500"
+                }`}
+              >
+                Drive with keyboard: <span className="font-bold">W / ↑</span> (Fwd) • <span className="font-bold">S / ↓</span> (Rev) • <span className="font-bold">A / ←</span> (Left) • <span className="font-bold">D / →</span> (Right) • <span className="font-bold">Space</span> (Brake)
               </div>
             </div>
 
             {/* Last Action Bar at base of remote */}
             <div
-              className={`pt-2 border-t flex items-center justify-between text-[11px] font-mono ${
+              className={`pt-1 border-t flex items-center justify-between text-[11px] font-mono ${
                 isDark ? "border-zinc-800 text-zinc-400" : "border-slate-200 text-slate-500"
               }`}
             >
-              <span>{lastAction ? `TX > ${lastAction}` : "Ready for input"}</span>
+              <span>{lastAction ? `TX > ${lastAction}` : "RC Car Ready"}</span>
               <button
                 onClick={() => setActiveTab("console")}
                 className="text-blue-500 font-bold hover:underline cursor-pointer"
@@ -833,28 +1034,46 @@ export default function Home() {
                 Macros:
               </span>
               <button
-                onClick={() => sendCommand("1")}
+                onClick={() => sendCommand("F")}
                 className="px-2 py-0.5 rounded-md bg-emerald-600/10 text-emerald-600 border border-emerald-500/30 text-[11px] font-mono font-bold hover:bg-emerald-600/20 cursor-pointer"
               >
-                M1: 1
+                Fwd (F)
+              </button>
+              <button
+                onClick={() => sendCommand("B")}
+                className="px-2 py-0.5 rounded-md bg-amber-600/10 text-amber-600 border border-amber-500/30 text-[11px] font-mono font-bold hover:bg-amber-600/20 cursor-pointer"
+              >
+                Back (B)
+              </button>
+              <button
+                onClick={() => sendCommand("L")}
+                className="px-2 py-0.5 rounded-md bg-cyan-600/10 text-cyan-600 border border-cyan-500/30 text-[11px] font-mono font-bold hover:bg-cyan-600/20 cursor-pointer"
+              >
+                Left (L)
+              </button>
+              <button
+                onClick={() => sendCommand("R")}
+                className="px-2 py-0.5 rounded-md bg-cyan-600/10 text-cyan-600 border border-cyan-500/30 text-[11px] font-mono font-bold hover:bg-cyan-600/20 cursor-pointer"
+              >
+                Right (R)
+              </button>
+              <button
+                onClick={() => sendCommand("S")}
+                className="px-2 py-0.5 rounded-md bg-rose-600/10 text-rose-600 border border-rose-500/30 text-[11px] font-mono font-bold hover:bg-rose-600/20 cursor-pointer"
+              >
+                Stop (S)
+              </button>
+              <button
+                onClick={() => sendCommand("1")}
+                className="px-2 py-0.5 rounded-md bg-yellow-600/10 text-yellow-600 border border-yellow-500/30 text-[11px] font-mono font-bold hover:bg-yellow-600/20 cursor-pointer"
+              >
+                Lt1 ON (1)
               </button>
               <button
                 onClick={() => sendCommand("0")}
-                className="px-2 py-0.5 rounded-md bg-rose-600/10 text-rose-600 border border-rose-500/30 text-[11px] font-mono font-bold hover:bg-rose-600/20 cursor-pointer"
+                className="px-2 py-0.5 rounded-md bg-slate-600/10 text-slate-600 border border-slate-500/30 text-[11px] font-mono font-bold hover:bg-slate-600/20 cursor-pointer"
               >
-                M2: 0
-              </button>
-              <button
-                onClick={() => sendCommand("2")}
-                className="px-2 py-0.5 rounded-md bg-cyan-600/10 text-cyan-600 border border-cyan-500/30 text-[11px] font-mono font-bold hover:bg-cyan-600/20 cursor-pointer"
-              >
-                M3: 2
-              </button>
-              <button
-                onClick={() => sendCommand("3")}
-                className="px-2 py-0.5 rounded-md bg-rose-600/10 text-rose-600 border border-rose-500/30 text-[11px] font-mono font-bold hover:bg-rose-600/20 cursor-pointer"
-              >
-                M4: 3
+                Lt1 OFF (0)
               </button>
             </div>
 
