@@ -2,7 +2,7 @@
 
 This guide accompanies the updated native draw.io diagram file:  
 📁 [**`docs/circuit_diagram.drawio`**](./circuit_diagram.drawio)  
-🤖 [**`docs/arduino_rc_car_uno_bt.ino`**](./arduino_rc_car_uno_bt.ino) *(Complete Arduino Uno + Bluetooth Firmware)*
+🤖 [**`docs/arduino_rc_car_uno_bt.ino`**](./arduino_rc_car_uno_bt.ino) *(Complete Arduino Uno + Bluetooth 4-Motor Firmware)*
 
 ---
 
@@ -32,7 +32,6 @@ graph TD
     classDef uno fill:#f0f9ff,stroke:#0284c7,stroke-width:2px,color:#0369a1;
     classDef bt fill:#faf5ff,stroke:#a855f7,stroke-width:2px,color:#6b21a8;
     classDef motor fill:#dcfce7,stroke:#22c55e,stroke-width:2px,color:#15803d;
-    classDef led fill:#fef9c3,stroke:#ca8a04,stroke-width:2px,color:#854d0e;
     classDef gnd fill:#334155,stroke:#0f172a,stroke-width:2px,color:#ffffff;
 
     subgraph POWER_SUPPLY ["1. Power Supply Rail"]
@@ -50,16 +49,15 @@ graph TD
         L298_OUT_R["OUT 3 & OUT 4<br/>(Right Motor Pair)"]:::l298
     end
 
-    subgraph MOTORS ["3. 4WD TT DC Gear Motors"]
-        M_LEFT["Left Motors (Front + Rear)<br/>Wired in Parallel"]:::motor
-        M_RIGHT["Right Motors (Front + Rear)<br/>Wired in Parallel"]:::motor
+    subgraph MOTORS ["3. 4WD TT DC Gear Motors (4 Motors Only)"]
+        M_LEFT["Left Motors (Front + Rear)<br/>Wired in Parallel to OUT1 & OUT2"]:::motor
+        M_RIGHT["Right Motors (Front + Rear)<br/>Wired in Parallel to OUT3 & OUT4"]:::motor
     end
 
     subgraph ARDUINO_UNO ["4. Arduino Uno Microcontroller"]
         UNO_PWR["5V Power & GND Pins<br/>(5V from Buck Converter)"]:::uno
         UNO_DIR["Direction Output Pins<br/>D7 (IN1), D8 (IN2), D9 (IN3), D10 (IN4)"]:::uno
         UNO_BT_PINS["SoftwareSerial Pins<br/>D3 (RX) & D4 (TX)"]:::uno
-        UNO_LIGHTS["Optional Headlight Pins<br/>D2 (Left) & D12 (Right)"]:::uno
     end
 
     subgraph HC05_MODULE ["5. HC-05 Bluetooth Module"]
@@ -67,11 +65,6 @@ graph TD
         HC05_TX["TXD (3.3V Data Out)"]:::bt
         HC05_RX["RXD (3.3V Data In)"]:::bt
         VDIV["Voltage Divider<br/>D4 ──[1k]──┬── RXD<br/>         [2k]<br/>          GND"]:::bt
-    end
-
-    subgraph HEADLIGHTS ["6. Dual LED Headlights"]
-        LED1["Left Headlight (Pin D2)<br/>White LED + 220Ω"]:::led
-        LED2["Right Headlight (Pin D12)<br/>White LED + 220Ω"]:::led
     end
 
     GND_BUS["COMMON GROUND BUS (GND)"]:::gnd
@@ -98,17 +91,11 @@ graph TD
     UNO_BT_PINS -->|D4 (5V TX)| VDIV
     VDIV --> HC05_RX
 
-    %% Lights
-    UNO_LIGHTS --> LED1
-    UNO_LIGHTS --> LED2
-
     %% Ground Connections
     L298_12V -.->|L298N GND| GND_BUS
     BUCK -.->|IN- & OUT- GND| GND_BUS
     UNO_PWR -.->|Uno GND| GND_BUS
     HC05_PWR -.->|BT GND| GND_BUS
-    LED1 -.->|Cathode GND| GND_BUS
-    LED2 -.->|Cathode GND| GND_BUS
 ```
 
 ---
@@ -150,7 +137,7 @@ graph TD
 
 ---
 
-### 3. Motor Outputs (Skid-Steering 4WD)
+### 3. Motor Outputs (Skid-Steering 4WD - 4 Motors)
 
 | L298N Terminal | Connected Motors | Terminal | Notes |
 |:---:|---|:---:|---|
@@ -172,27 +159,15 @@ graph TD
 
 ---
 
-### 5. Optional Dual LED Headlights
-
-| Arduino Uno Pin | Component | Series Resistor | Return | Bose Remote Command |
-|:---:|---|:---:|:---:|:---:|
-| **Pin D2** | Headlight 1 (Left LED) | 220Ω | Cathode $\rightarrow$ GND | `'1'` (ON) / `'0'` (OFF) |
-| **Pin D12** | Headlight 2 (Right LED) | 220Ω | Cathode $\rightarrow$ GND | `'2'` (ON) / `'3'` (OFF) |
-
----
-
-## 🕹️ Driving Commands Reference
+## 🕹️ Driving Commands Reference (4 Motors Only)
 
 | Key / Button | Action | Command Byte | Description |
 |:---:|:---:|:---:|:---|
 | **W / ▲** | **Forward** | `'F'` | All 4 wheels drive forward (`IN1=1, IN2=0, IN3=1, IN4=0`) |
 | **S / ▼** | **Reverse** | `'B'` | All 4 wheels drive in reverse (`IN1=0, IN2=1, IN3=0, IN4=1`) |
-| **A / ◄** | **Spin Left** | `'L'` | Left wheels reverse, Right wheels forward (`IN1=0, IN2=1, IN3=1, IN4=0`) |
-| **D / ►** | **Spin Right** | `'R'` | Left wheels forward, Right wheels reverse (`IN1=1, IN2=0, IN3=0, IN4=1`) |
+| **A / ◄** | **Turn Left** | `'L'` | Left wheels reverse, Right wheels forward (`IN1=0, IN2=1, IN3=1, IN4=0`) |
+| **D / ►** | **Turn Right** | `'R'` | Left wheels forward, Right wheels reverse (`IN1=1, IN2=0, IN3=0, IN4=1`) |
 | **Space / 🛑** | **Brake / Stop** | `'S'` | Electronic dynamic brake (`IN1=0, IN2=0, IN3=0, IN4=0`) |
-| **💡 LT 1** | **Light 1** | `'1'` / `'0'` | Toggle Left Headlight |
-| **💡 LT 2** | **Light 2** | `'2'` / `'3'` | Toggle Right Headlight |
-| **⚡ ALL** | **All Lights** | `'W'` / `'w'` | Master Lights ON / OFF |
 
 ---
 

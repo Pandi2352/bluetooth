@@ -22,15 +22,18 @@ export default function Home() {
   const [connectedDeviceName, setConnectedDeviceName] = useState<string | null>(null);
   const [connectionType, setConnectionType] = useState<"webbluetooth" | "webserial" | "backend" | null>(null);
 
+  // RC Car Driving Mode: 'tap' (click once to drive) | 'hold' (drive while pressed)
+  const [driveMode, setDriveMode] = useState<"tap" | "hold">("tap");
+
   // RC Car Driving states ('F' = Forward, 'B' = Reverse, 'L' = Left, 'R' = Right, 'STOP' = Brake)
   const [driveState, setDriveState] = useState<"STOP" | "F" | "B" | "L" | "R">("STOP");
   const driveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const activeDriveCmdRef = useRef<string | null>(null);
-
-  // Dual LED states
-  const [led1On, setLed1On] = useState(false); // Pin 2 ('1' = ON, '0' = OFF)
-  const [led2On, setLed2On] = useState(false); // Pin 3 ('2' = ON, '3' = OFF)
   const [lastAction, setLastAction] = useState<string | null>(null);
+
+  // Bluetooth Transmission Mutex & Queue (Prevents "GATT operation already in progress")
+  const isSendingRef = useRef(false);
+  const pendingCmdRef = useRef<{ rawCmd: string; label?: string; isStream?: boolean } | null>(null);
 
   // Terminal Console states
   const [messages, setMessages] = useState<TerminalMessage[]>([]);
@@ -53,7 +56,7 @@ export default function Home() {
   const triggerHaptic = () => {
     if (typeof window !== "undefined" && "vibrate" in navigator) {
       try {
-        navigator.vibrate(30);
+        navigator.vibrate(25);
       } catch {
         // Ignore if restricted
       }
@@ -115,6 +118,8 @@ export default function Home() {
         setIsConnected(false);
         setConnectedDeviceName(null);
         setConnectionType(null);
+        gattTxCharRef.current = null;
+        gattDeviceRef.current = null;
         addMessage("Bluetooth device disconnected.", "system");
       });
 
@@ -146,19 +151,17 @@ export default function Home() {
             const val = new TextDecoder().decode(e.target.value).trim();
             if (val) {
               addMessage(val, "rx");
-              if (val.includes("1") || val.toLowerCase().includes("on")) setLed1On(true);
-              if (val.includes("0") || val.toLowerCase().includes("off")) setLed1On(false);
             }
           });
         }
       } catch {
-        // Continue
+        // Fallback or continue
       }
 
       setIsConnected(true);
-      setConnectedDeviceName(device.name || "Bluetooth Device");
+      setConnectedDeviceName(device.name || "Bluetooth RC Car");
       setConnectionType("webbluetooth");
-      addMessage(`Connected to ${device.name || "Bluetooth Device"}!`, "system");
+      addMessage(`Connected to ${device.name || "Bluetooth RC Car"}!`, "system");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Cancelled";
       addMessage(`Connection note: ${msg}`, "error");
@@ -259,59 +262,19 @@ export default function Home() {
     addMessage("Disconnected.", "system");
   };
 
-  // Send Command ('F', 'B', 'L', 'R', 'S', '1', '0', etc.)
-  const sendCommand = async (rawCmd: string, label?: string, isStream?: boolean) => {
-    let payload = rawCmd;
-    if (lineEnding === "nl") payload += "\n";
-    else if (lineEnding === "crnl") payload += "\r\n";
-    else if (lineEnding === "cr") payload += "\r";
-
-    // Track internal action status
-    if (rawCmd === "F") {
-      setLastAction("FORWARD ('F')");
-    } else if (rawCmd === "B") {
-      setLastAction("BACKWARD ('B')");
-    } else if (rawCmd === "L") {
-      setLastAction("SPIN LEFT ('L')");
-    } else if (rawCmd === "R") {
-      setLastAction("SPIN RIGHT ('R')");
-    } else if (rawCmd === "S") {
-      setLastAction("STOP / BRAKE ('S')");
-    } else if (rawCmd === "1") {
-      setLed1On(true);
-      setLastAction("LED 1 ON ('1')");
-    } else if (rawCmd === "0") {
-      setLed1On(false);
-      setLastAction("LED 1 OFF ('0')");
-    } else if (rawCmd === "2") {
-      setLed2On(true);
-      setLastAction("LED 2 ON ('2')");
-    } else if (rawCmd === "3") {
-      setLed2On(false);
-      setLastAction("LED 2 OFF ('3')");
-    } else {
-      setLastAction(label || `Sent '${rawCmd}'`);
-    }
-
-    // Only log and vibrate on new command, not repetitive 100ms stream heartbeats
-    if (!isStream) {
-      triggerHaptic();
-      setCommandHistory((prev) => [rawCmd, ...prev.slice(0, 20)]);
-      setHistoryIndex(-1);
-      const displayText = displayMode === "hex" ? stringToHex(payload) : rawCmd;
-      addMessage(displayText, "tx");
-    }
-
+  // Raw Low-Level Transport (Single transmit)
+  const rawTransmit = async (payload: string, rawCmd: string, isStream?: boolean): Promise<boolean> => {
     // 1. Web Bluetooth Transmit
     if (connectionType === "webbluetooth" && gattTxCharRef.current) {
       try {
         const encoder = new TextEncoder();
         await gattTxCharRef.current.writeValue(encoder.encode(payload));
-        return;
+        return true;
       } catch (err: unknown) {
         if (!isStream) {
           addMessage(`BLE TX Error: ${err instanceof Error ? err.message : String(err)}`, "error");
         }
+        return false;
       }
     }
 
@@ -319,11 +282,12 @@ export default function Home() {
     if (connectionType === "webserial" && serialWriterRef.current) {
       try {
         await serialWriterRef.current.write(payload);
-        return;
+        return true;
       } catch (err: unknown) {
         if (!isStream) {
           addMessage(`Serial TX Error: ${err instanceof Error ? err.message : String(err)}`, "error");
         }
+        return false;
       }
     }
 
@@ -334,15 +298,76 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ command: rawCmd }),
       });
+      return true;
     } catch {
-      // Offline/client-only
+      return false;
     }
   };
 
-  // RC Car Continuous Drive Streamer (Repeats every 100ms so Arduino 400ms watchdog stays fed)
-  const startDriving = (cmd: "F" | "B" | "L" | "R") => {
-    if (activeDriveCmdRef.current === cmd) return;
+  // High-Level Sequential Command Dispatcher with Mutex (Never crashes into GATT collisions)
+  const sendCommand = async (rawCmd: string, label?: string, isStream?: boolean) => {
+    // If a write is currently in progress, buffer this command so it is sent immediately after
+    if (isSendingRef.current) {
+      pendingCmdRef.current = { rawCmd, label, isStream };
+      return;
+    }
 
+    isSendingRef.current = true;
+
+    try {
+      let currentCmd: { rawCmd: string; label?: string; isStream?: boolean } | null = { rawCmd, label, isStream };
+
+      while (currentCmd) {
+        const { rawCmd: cmd, label: lbl, isStream: stream } = currentCmd;
+        currentCmd = null;
+
+        let payload = cmd;
+        if (lineEnding === "nl") payload += "\n";
+        else if (lineEnding === "crnl") payload += "\r\n";
+        else if (lineEnding === "cr") payload += "\r";
+
+        // Update last action status
+        if (cmd === "F") setLastAction("FORWARD ('F')");
+        else if (cmd === "B") setLastAction("REVERSE ('B')");
+        else if (cmd === "L") setLastAction("SPIN LEFT ('L')");
+        else if (cmd === "R") setLastAction("SPIN RIGHT ('R')");
+        else if (cmd === "S") setLastAction("STOP / BRAKE ('S')");
+        else setLastAction(lbl || `Sent '${cmd}'`);
+
+        if (!stream) {
+          triggerHaptic();
+          setCommandHistory((prev) => [cmd, ...prev.slice(0, 20)]);
+          setHistoryIndex(-1);
+          const displayText = displayMode === "hex" ? stringToHex(payload) : cmd;
+          addMessage(displayText, "tx");
+        }
+
+        await rawTransmit(payload, cmd, stream);
+
+        // If another command arrived while transmitting, pick it up sequentially
+        if (pendingCmdRef.current) {
+          currentCmd = pendingCmdRef.current;
+          pendingCmdRef.current = null;
+        }
+      }
+    } finally {
+      isSendingRef.current = false;
+    }
+  };
+
+  // Motion Handlers for TAP MODE (Click once to drive continuously until Stop or new direction)
+  const handleMotionClick = (cmd: "F" | "B" | "L" | "R") => {
+    if (driveIntervalRef.current) {
+      clearInterval(driveIntervalRef.current);
+      driveIntervalRef.current = null;
+    }
+    activeDriveCmdRef.current = cmd;
+    setDriveState(cmd);
+    sendCommand(cmd);
+  };
+
+  // Motion Handlers for HOLD MODE (Drive while holding button down)
+  const handleMotionDown = (cmd: "F" | "B" | "L" | "R") => {
     if (driveIntervalRef.current) {
       clearInterval(driveIntervalRef.current);
       driveIntervalRef.current = null;
@@ -351,16 +376,18 @@ export default function Home() {
     activeDriveCmdRef.current = cmd;
     setDriveState(cmd);
 
-    // Immediate first transmission (with haptic & logging)
+    // Initial instant write
     sendCommand(cmd);
 
-    // Continuous 100ms stream while button is held down
+    // Safe 160ms heartbeat interval while held (only sends if not currently busy)
     driveIntervalRef.current = setInterval(() => {
-      sendCommand(cmd, undefined, true);
-    }, 100);
+      if (!isSendingRef.current) {
+        sendCommand(cmd, undefined, true);
+      }
+    }, 160);
   };
 
-  // Release button / Stop Driving -> engages Electronic Brake
+  // Stop / Brake (Stops all 4 motors and clears all intervals)
   const stopDriving = () => {
     if (driveIntervalRef.current) {
       clearInterval(driveIntervalRef.current);
@@ -372,7 +399,7 @@ export default function Home() {
     sendCommand("S", "STOP ('S')");
   };
 
-  // Keyboard navigation listener (Arrow keys & WASD driving support)
+  // Keyboard driving listener (Arrow keys & WASD)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
@@ -383,16 +410,20 @@ export default function Home() {
       const key = e.key.toLowerCase();
       if (key === "arrowup" || key === "w") {
         e.preventDefault();
-        startDriving("F");
+        if (driveMode === "hold") handleMotionDown("F");
+        else handleMotionClick("F");
       } else if (key === "arrowdown" || key === "s") {
         e.preventDefault();
-        startDriving("B");
+        if (driveMode === "hold") handleMotionDown("B");
+        else handleMotionClick("B");
       } else if (key === "arrowleft" || key === "a") {
         e.preventDefault();
-        startDriving("L");
+        if (driveMode === "hold") handleMotionDown("L");
+        else handleMotionClick("L");
       } else if (key === "arrowright" || key === "d") {
         e.preventDefault();
-        startDriving("R");
+        if (driveMode === "hold") handleMotionDown("R");
+        else handleMotionClick("R");
       } else if (key === " " || key === "escape") {
         e.preventDefault();
         stopDriving();
@@ -404,15 +435,18 @@ export default function Home() {
         return;
       }
 
-      const key = e.key.toLowerCase();
-      if (
-        ((key === "arrowup" || key === "w") && activeDriveCmdRef.current === "F") ||
-        ((key === "arrowdown" || key === "s") && activeDriveCmdRef.current === "B") ||
-        ((key === "arrowleft" || key === "a") && activeDriveCmdRef.current === "L") ||
-        ((key === "arrowright" || key === "d") && activeDriveCmdRef.current === "R")
-      ) {
-        e.preventDefault();
-        stopDriving();
+      // If in hold mode, releasing key stops the car
+      if (driveMode === "hold") {
+        const key = e.key.toLowerCase();
+        if (
+          ((key === "arrowup" || key === "w") && activeDriveCmdRef.current === "F") ||
+          ((key === "arrowdown" || key === "s") && activeDriveCmdRef.current === "B") ||
+          ((key === "arrowleft" || key === "a") && activeDriveCmdRef.current === "L") ||
+          ((key === "arrowright" || key === "d") && activeDriveCmdRef.current === "R")
+        ) {
+          e.preventDefault();
+          stopDriving();
+        }
       }
     };
 
@@ -424,17 +458,7 @@ export default function Home() {
       window.removeEventListener("keyup", handleKeyUp);
       if (driveIntervalRef.current) clearInterval(driveIntervalRef.current);
     };
-  }, []);
-
-  const handleAllOn = () => {
-    sendCommand("1");
-    setTimeout(() => sendCommand("2"), 120);
-  };
-
-  const handleAllOff = () => {
-    sendCommand("0");
-    setTimeout(() => sendCommand("3"), 120);
-  };
+  }, [driveMode]);
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -448,22 +472,30 @@ export default function Home() {
   return (
     <main
       className={`min-h-screen transition-colors duration-300 font-sans flex flex-col items-center justify-start px-2 py-2 sm:px-4 sm:py-6 w-full ${
-        isDark ? "bg-zinc-950 text-white" : "bg-slate-100 text-slate-900"
+        isDark ? "bg-black text-zinc-100" : "bg-slate-100 text-slate-800"
       }`}
     >
-      <div className="w-full max-w-md mx-auto space-y-2">
-        
+      <div className="w-full max-w-sm space-y-2">
         {/* Top App Bar with Light/Dark Mode & Brand */}
-        <header className="flex items-center justify-between px-1 py-1">
+        <header
+          className={`flex items-center justify-between px-3 py-2 rounded-md border transition-all ${
+            isDark
+              ? "bg-zinc-900 border-zinc-800"
+              : "bg-white border-slate-300"
+          }`}
+        >
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-blue-600 text-white flex items-center justify-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="m7 7 10 10-5 5V2l5 5L7 17" />
-              </svg>
+            <div className="w-6 h-6 rounded-md bg-blue-600 flex items-center justify-center text-white font-black text-xs">
+              B
             </div>
-            <span className="font-extrabold text-sm tracking-tight">
-              Bose remote
-            </span>
+            <div>
+              <h1 className="text-sm font-black tracking-wide leading-none uppercase">
+                Bose remote
+              </h1>
+              <p className={`text-[10px] leading-tight font-medium ${isDark ? "text-zinc-400" : "text-slate-500"}`}>
+                4WD RC Car Controller (4 Motors)
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -471,10 +503,10 @@ export default function Home() {
             <button
               onClick={() => setTheme(isDark ? "light" : "dark")}
               title={`Switch to ${isDark ? "Light" : "Dark"} mode`}
-              className={`p-1.5 rounded-md transition cursor-pointer border ${
+              className={`p-1.5 rounded-md border transition cursor-pointer ${
                 isDark
-                  ? "bg-zinc-900 border-zinc-800 text-amber-400 hover:bg-zinc-800"
-                  : "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
+                  ? "bg-zinc-800 border-zinc-700 text-yellow-400 hover:bg-zinc-700"
+                  : "bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200"
               }`}
             >
               {isDark ? (
@@ -486,14 +518,14 @@ export default function Home() {
               ) : (
                 // Moon Icon (Switch to Dark)
                 <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 3a6 6 0 0 0 9 9 9 0 1 1-9-9Z" />
+                  <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
                 </svg>
               )}
             </button>
           </div>
         </header>
 
-        {/* Segmented Two-Tab Navigation */}
+        {/* Tab Switcher: Bose Remote vs Kai Morich Serial Console */}
         <nav
           className={`grid grid-cols-2 p-1 rounded-md border gap-1 transition-all ${
             isDark
@@ -667,63 +699,108 @@ export default function Home() {
                 </span>
               </div>
               <span className="text-[10px] opacity-75">
-                {driveState !== "STOP" ? "Streaming 100ms" : "Watchdog Ready"}
+                {driveState !== "STOP" ? (driveMode === "hold" ? "Streaming" : "Latched") : "Brake Engaged"}
               </span>
             </div>
 
+            {/* Drive Mode Selector: Tap to Drive vs Hold to Drive */}
+            <div
+              className={`flex items-center justify-between p-1.5 rounded-md border text-xs ${
+                isDark ? "bg-zinc-950 border-zinc-800" : "bg-slate-100 border-slate-200"
+              }`}
+            >
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
+                Drive Mode:
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    triggerHaptic();
+                    setDriveMode("tap");
+                    stopDriving();
+                  }}
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer border ${
+                    driveMode === "tap"
+                      ? isDark
+                        ? "bg-zinc-800 text-white border-zinc-700"
+                        : "bg-white text-slate-900 border-slate-300"
+                      : "border-transparent text-zinc-500 hover:text-zinc-400"
+                  }`}
+                >
+                  ● Tap to Drive
+                </button>
+                <button
+                  onClick={() => {
+                    triggerHaptic();
+                    setDriveMode("hold");
+                    stopDriving();
+                  }}
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition cursor-pointer border ${
+                    driveMode === "hold"
+                      ? isDark
+                        ? "bg-zinc-800 text-white border-zinc-700"
+                        : "bg-white text-slate-900 border-slate-300"
+                      : "border-transparent text-zinc-500 hover:text-zinc-400"
+                  }`}
+                >
+                  Hold to Drive
+                </button>
+              </div>
+            </div>
+
             {/* ============================================================ */}
-            {/* TACTILE RC D-PAD CONTROLLER (TOUCH & HOLD STREAMING)        */}
+            {/* TACTILE 4-MOTOR RC D-PAD CONTROLLER (4 MOTORS ONLY)         */}
             {/* ============================================================ */}
             <div
-              className={`p-3 rounded-md border text-center space-y-2 ${
+              className={`p-3 rounded-md border text-center space-y-2.5 ${
                 isDark ? "bg-zinc-950 border-zinc-800" : "bg-slate-50 border-slate-200"
               }`}
             >
               <div className="flex items-center justify-between">
                 <span className={`text-[10px] font-black uppercase tracking-wider ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
-                  Motion Controls (Touch &amp; Hold)
+                  4-Motor Motion Pad
                 </span>
                 <span className={`text-[9px] font-mono ${isDark ? "text-zinc-500" : "text-slate-400"}`}>
-                  400ms Auto-Brake
+                  {driveMode === "tap" ? "Tap moves • Tap Stop halts" : "Press & hold to run"}
                 </span>
               </div>
 
-              {/* 3x3 D-Pad Matrix */}
+              {/* 3x3 D-Pad Matrix for 4 Motors */}
               <div className="grid grid-cols-3 gap-2 max-w-xs mx-auto">
-                {/* Row 1: Left Headlight Toggle | FORWARD | Right Headlight Toggle */}
-                <button
-                  onClick={() => sendCommand(led1On ? "0" : "1")}
-                  className={`py-3 px-1 rounded-md border font-bold text-[11px] flex flex-col items-center justify-center transition active:scale-95 cursor-pointer ${
-                    led1On
-                      ? "bg-amber-500/20 border-amber-500 text-amber-500"
-                      : isDark
-                      ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"
-                      : "bg-white border-slate-300 text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <span className="text-sm">💡</span>
-                  <span>{led1On ? "LT 1 ON" : "LT 1 OFF"}</span>
-                </button>
+                {/* Row 1: Spacer | FORWARD | Spacer */}
+                <div />
 
+                {/* FORWARD BUTTON */}
                 <button
+                  onClick={() => {
+                    if (driveMode === "tap") handleMotionClick("F");
+                  }}
                   onPointerDown={(e) => {
-                    e.preventDefault();
-                    startDriving("F");
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      handleMotionDown("F");
+                    }
                   }}
                   onPointerUp={(e) => {
-                    e.preventDefault();
-                    stopDriving();
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
                   }}
                   onPointerLeave={(e) => {
-                    e.preventDefault();
-                    stopDriving();
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
                   }}
                   onPointerCancel={(e) => {
-                    e.preventDefault();
-                    stopDriving();
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
                   }}
                   onContextMenu={(e) => e.preventDefault()}
-                  className={`py-4 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
+                  className={`py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
                     driveState === "F"
                       ? "bg-emerald-600 text-white border-emerald-500 ring-2 ring-emerald-500/40"
                       : isDark
@@ -732,44 +809,44 @@ export default function Home() {
                   }`}
                 >
                   <span className="text-xl leading-none">▲</span>
-                  <span className="text-xs font-bold mt-1">FWD</span>
+                  <span className="text-xs font-black mt-1">FORWARD</span>
                   <span className="text-[9px] font-mono opacity-75">[W / ↑]</span>
                 </button>
 
-                <button
-                  onClick={() => sendCommand(led2On ? "3" : "2")}
-                  className={`py-3 px-1 rounded-md border font-bold text-[11px] flex flex-col items-center justify-center transition active:scale-95 cursor-pointer ${
-                    led2On
-                      ? "bg-amber-500/20 border-amber-500 text-amber-500"
-                      : isDark
-                      ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"
-                      : "bg-white border-slate-300 text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <span className="text-sm">💡</span>
-                  <span>{led2On ? "LT 2 ON" : "LT 2 OFF"}</span>
-                </button>
+                <div />
 
                 {/* Row 2: LEFT | STOP / BRAKE | RIGHT */}
+                {/* LEFT BUTTON */}
                 <button
+                  onClick={() => {
+                    if (driveMode === "tap") handleMotionClick("L");
+                  }}
                   onPointerDown={(e) => {
-                    e.preventDefault();
-                    startDriving("L");
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      handleMotionDown("L");
+                    }
                   }}
                   onPointerUp={(e) => {
-                    e.preventDefault();
-                    stopDriving();
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
                   }}
                   onPointerLeave={(e) => {
-                    e.preventDefault();
-                    stopDriving();
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
                   }}
                   onPointerCancel={(e) => {
-                    e.preventDefault();
-                    stopDriving();
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
                   }}
                   onContextMenu={(e) => e.preventDefault()}
-                  className={`py-4 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
+                  className={`py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
                     driveState === "L"
                       ? "bg-cyan-600 text-white border-cyan-500 ring-2 ring-cyan-500/40"
                       : isDark
@@ -778,43 +855,59 @@ export default function Home() {
                   }`}
                 >
                   <span className="text-xl leading-none">◄</span>
-                  <span className="text-xs font-bold mt-1">LEFT</span>
+                  <span className="text-xs font-black mt-1">LEFT</span>
                   <span className="text-[9px] font-mono opacity-75">[A / ←]</span>
                 </button>
 
+                {/* EMERGENCY STOP BUTTON */}
                 <button
-                  onClick={stopDriving}
+                  onClick={() => {
+                    triggerHaptic();
+                    stopDriving();
+                  }}
                   onPointerDown={(e) => {
                     e.preventDefault();
                     stopDriving();
                   }}
                   onContextMenu={(e) => e.preventDefault()}
-                  className="py-4 px-2 rounded-md font-black text-sm tracking-wider uppercase border border-rose-600 bg-rose-600 hover:bg-rose-500 text-white cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center"
+                  className="py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border border-rose-600 bg-rose-600 hover:bg-rose-500 text-white cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center"
                 >
                   <span className="text-lg leading-none">🛑</span>
-                  <span className="text-xs font-bold mt-1">STOP</span>
+                  <span className="text-xs font-black mt-1">STOP</span>
                   <span className="text-[9px] font-mono opacity-80">[SPACE]</span>
                 </button>
 
+                {/* RIGHT BUTTON */}
                 <button
+                  onClick={() => {
+                    if (driveMode === "tap") handleMotionClick("R");
+                  }}
                   onPointerDown={(e) => {
-                    e.preventDefault();
-                    startDriving("R");
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      handleMotionDown("R");
+                    }
                   }}
                   onPointerUp={(e) => {
-                    e.preventDefault();
-                    stopDriving();
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
                   }}
                   onPointerLeave={(e) => {
-                    e.preventDefault();
-                    stopDriving();
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
                   }}
                   onPointerCancel={(e) => {
-                    e.preventDefault();
-                    stopDriving();
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
                   }}
                   onContextMenu={(e) => e.preventDefault()}
-                  className={`py-4 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
+                  className={`py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
                     driveState === "R"
                       ? "bg-cyan-600 text-white border-cyan-500 ring-2 ring-cyan-500/40"
                       : isDark
@@ -823,42 +916,84 @@ export default function Home() {
                   }`}
                 >
                   <span className="text-xl leading-none">►</span>
-                  <span className="text-xs font-bold mt-1">RIGHT</span>
+                  <span className="text-xs font-black mt-1">RIGHT</span>
                   <span className="text-[9px] font-mono opacity-75">[D / →]</span>
                 </button>
 
-                {/* Row 3: ALL LIGHTS ON | BACKWARD | ALL LIGHTS OFF */}
+                {/* Row 3: SPIN LEFT | REVERSE | SPIN RIGHT */}
+                {/* SPIN LEFT */}
                 <button
-                  onClick={handleAllOn}
-                  className={`py-3 px-1 rounded-md border font-bold text-[10px] flex flex-col items-center justify-center transition active:scale-95 cursor-pointer ${
-                    isDark
-                      ? "bg-zinc-900 border-zinc-800 text-emerald-400 hover:bg-zinc-800"
-                      : "bg-white border-slate-300 text-emerald-700 hover:bg-slate-50"
-                  }`}
-                >
-                  <span className="text-sm">⚡</span>
-                  <span>ALL LIGHTS</span>
-                </button>
-
-                <button
+                  onClick={() => {
+                    if (driveMode === "tap") handleMotionClick("L");
+                  }}
                   onPointerDown={(e) => {
-                    e.preventDefault();
-                    startDriving("B");
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      handleMotionDown("L");
+                    }
                   }}
                   onPointerUp={(e) => {
-                    e.preventDefault();
-                    stopDriving();
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
                   }}
                   onPointerLeave={(e) => {
-                    e.preventDefault();
-                    stopDriving();
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
                   }}
                   onPointerCancel={(e) => {
-                    e.preventDefault();
-                    stopDriving();
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
                   }}
                   onContextMenu={(e) => e.preventDefault()}
-                  className={`py-4 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
+                  className={`py-2 px-1 rounded-md font-bold text-[10px] uppercase border transition active:scale-95 cursor-pointer flex flex-col items-center justify-center ${
+                    driveState === "L"
+                      ? "bg-cyan-500/20 border-cyan-500 text-cyan-500"
+                      : isDark
+                      ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"
+                      : "bg-white border-slate-300 text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <span className="text-base">↺</span>
+                  <span>SPIN L</span>
+                </button>
+
+                {/* REVERSE BUTTON */}
+                <button
+                  onClick={() => {
+                    if (driveMode === "tap") handleMotionClick("B");
+                  }}
+                  onPointerDown={(e) => {
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      handleMotionDown("B");
+                    }
+                  }}
+                  onPointerUp={(e) => {
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
+                  }}
+                  onPointerLeave={(e) => {
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
+                  }}
+                  onPointerCancel={(e) => {
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
+                  }}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className={`py-3.5 px-2 rounded-md font-black text-sm tracking-wider uppercase border transition-all cursor-pointer touch-none select-none active:scale-95 flex flex-col items-center justify-center ${
                     driveState === "B"
                       ? "bg-amber-600 text-white border-amber-500 ring-2 ring-amber-500/40"
                       : isDark
@@ -867,22 +1002,68 @@ export default function Home() {
                   }`}
                 >
                   <span className="text-xl leading-none">▼</span>
-                  <span className="text-xs font-bold mt-1">BACK</span>
+                  <span className="text-xs font-black mt-1">BACK</span>
                   <span className="text-[9px] font-mono opacity-75">[S / ↓]</span>
                 </button>
 
+                {/* SPIN RIGHT */}
                 <button
-                  onClick={handleAllOff}
-                  className={`py-3 px-1 rounded-md border font-bold text-[10px] flex flex-col items-center justify-center transition active:scale-95 cursor-pointer ${
-                    isDark
-                      ? "bg-zinc-900 border-zinc-800 text-rose-400 hover:bg-zinc-800"
-                      : "bg-white border-slate-300 text-rose-700 hover:bg-slate-50"
+                  onClick={() => {
+                    if (driveMode === "tap") handleMotionClick("R");
+                  }}
+                  onPointerDown={(e) => {
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      handleMotionDown("R");
+                    }
+                  }}
+                  onPointerUp={(e) => {
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
+                  }}
+                  onPointerLeave={(e) => {
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
+                  }}
+                  onPointerCancel={(e) => {
+                    if (driveMode === "hold") {
+                      e.preventDefault();
+                      stopDriving();
+                    }
+                  }}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className={`py-2 px-1 rounded-md font-bold text-[10px] uppercase border transition active:scale-95 cursor-pointer flex flex-col items-center justify-center ${
+                    driveState === "R"
+                      ? "bg-cyan-500/20 border-cyan-500 text-cyan-500"
+                      : isDark
+                      ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"
+                      : "bg-white border-slate-300 text-slate-600 hover:text-slate-900"
                   }`}
                 >
-                  <span className="text-sm">⭕</span>
-                  <span>LIGHTS OFF</span>
+                  <span className="text-base">↻</span>
+                  <span>SPIN R</span>
                 </button>
               </div>
+
+              {/* Master Brake Button */}
+              <button
+                onClick={() => {
+                  triggerHaptic();
+                  stopDriving();
+                }}
+                className={`w-full py-2 rounded-md font-bold text-xs tracking-wider uppercase border transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  isDark
+                    ? "bg-zinc-900 border-zinc-800 hover:bg-zinc-800 text-rose-400"
+                    : "bg-slate-100 border-slate-300 hover:bg-slate-200 text-rose-700"
+                }`}
+              >
+                <span>🛑</span>
+                <span>BRAKE ALL 4 MOTORS ('S')</span>
+              </button>
 
               {/* Keyboard Driving Guide Footer Pill */}
               <div
@@ -900,7 +1081,7 @@ export default function Home() {
                 isDark ? "border-zinc-800 text-zinc-400" : "border-slate-200 text-slate-500"
               }`}
             >
-              <span>{lastAction ? `TX > ${lastAction}` : "RC Car Ready"}</span>
+              <span>{lastAction ? `TX > ${lastAction}` : "4-Motor RC Car Ready"}</span>
               <button
                 onClick={() => setActiveTab("console")}
                 className="text-blue-500 font-bold hover:underline cursor-pointer"
@@ -959,33 +1140,55 @@ export default function Home() {
                       : "bg-slate-100 border-slate-300 text-slate-700"
                   }`}
                 >
-                  <option value="none">No Ending</option>
-                  <option value="nl">\n (LF)</option>
-                  <option value="crnl">\r\n (CRLF)</option>
-                  <option value="cr">\r (CR)</option>
+                  <option value="none">None</option>
+                  <option value="nl">NL (\n)</option>
+                  <option value="crnl">CR+NL (\r\n)</option>
+                  <option value="cr">CR (\r)</option>
                 </select>
 
+                {/* Auto Scroll Toggle */}
                 <button
-                  onClick={() => setMessages([])}
-                  className={`px-1.5 py-0.5 rounded-md text-[10px] font-semibold border cursor-pointer ${
-                    isDark
-                      ? "bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700"
-                      : "bg-slate-100 border-slate-300 text-slate-600 hover:bg-slate-200"
+                  onClick={() => setAutoScroll(!autoScroll)}
+                  className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono border transition cursor-pointer ${
+                    autoScroll
+                      ? "bg-blue-600/20 text-blue-500 border-blue-500/40"
+                      : isDark
+                      ? "bg-zinc-800 text-zinc-500 border-zinc-700"
+                      : "bg-slate-100 text-slate-400 border-slate-300"
                   }`}
                 >
-                  Clear
+                  SCROLL
+                </button>
+
+                {/* Clear Console */}
+                <button
+                  onClick={() => {
+                    triggerHaptic();
+                    setMessages([]);
+                  }}
+                  className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono border transition cursor-pointer ${
+                    isDark
+                      ? "bg-zinc-800 hover:bg-zinc-700 border-zinc-700 text-zinc-300"
+                      : "bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700"
+                  }`}
+                >
+                  CLEAR
                 </button>
               </div>
             </div>
 
-            {/* Terminal Viewport Screen */}
-            <div className="h-60 sm:h-72 overflow-y-auto rounded-md bg-black p-2.5 font-mono text-xs space-y-1 border border-zinc-800 text-emerald-400">
+            {/* Terminal Screen / Messages Viewport */}
+            <div
+              className={`h-64 overflow-y-auto p-2.5 font-mono text-xs rounded-md border space-y-1 select-text ${
+                isDark
+                  ? "bg-zinc-950 border-zinc-800 text-zinc-200"
+                  : "bg-slate-900 border-slate-800 text-slate-200"
+              }`}
+            >
               {messages.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-zinc-600 space-y-1 select-none text-center">
-                  <p className="text-zinc-500 font-medium">Bose remote Terminal Ready</p>
-                  <p className="text-[11px] text-zinc-600">
-                    Commands sent from Remote or typed below appear here live.
-                  </p>
+                <div className="h-full flex flex-col items-center justify-center text-zinc-500 space-y-1 text-center py-6">
+                  <p className="font-semibold text-xs text-zinc-400">Terminal ready (9600 Baud)</p>
+                  <p className="text-[10px] text-zinc-600">Send F, B, L, R, S or custom ASCII</p>
                 </div>
               ) : (
                 messages.map((m) => {
@@ -993,8 +1196,8 @@ export default function Home() {
                     return (
                       <div key={m.id} className="flex items-start gap-1.5 text-blue-400">
                         <span className="text-zinc-600 text-[10px] select-none">{m.timestamp}</span>
-                        <span className="text-blue-500 font-bold select-none">TX &gt;</span>
-                        <span className="text-blue-300 font-semibold break-all">{m.text}</span>
+                        <span className="text-blue-500 font-bold select-none">[TX &gt;]</span>
+                        <span className="font-semibold break-all">{m.text}</span>
                       </div>
                     );
                   }
@@ -1002,8 +1205,8 @@ export default function Home() {
                     return (
                       <div key={m.id} className="flex items-start gap-1.5 text-emerald-400">
                         <span className="text-zinc-600 text-[10px] select-none">{m.timestamp}</span>
-                        <span className="text-emerald-500 font-bold select-none">RX &lt;</span>
-                        <span className="text-emerald-300 break-all">{m.text}</span>
+                        <span className="text-emerald-500 font-bold select-none">[RX &lt;]</span>
+                        <span className="font-semibold break-all">{m.text}</span>
                       </div>
                     );
                   }
@@ -1028,10 +1231,10 @@ export default function Home() {
               <div ref={terminalBottomRef} />
             </div>
 
-            {/* Quick Macro Shortcuts */}
+            {/* Quick Macro Shortcuts (Pure 4-Motor Commands) */}
             <div className="flex flex-wrap gap-1.5 pt-0.5 items-center">
               <span className={`text-[10px] font-bold ${isDark ? "text-zinc-400" : "text-slate-500"}`}>
-                Macros:
+                RC Macros:
               </span>
               <button
                 onClick={() => sendCommand("F")}
@@ -1063,31 +1266,19 @@ export default function Home() {
               >
                 Stop (S)
               </button>
-              <button
-                onClick={() => sendCommand("1")}
-                className="px-2 py-0.5 rounded-md bg-yellow-600/10 text-yellow-600 border border-yellow-500/30 text-[11px] font-mono font-bold hover:bg-yellow-600/20 cursor-pointer"
-              >
-                Lt1 ON (1)
-              </button>
-              <button
-                onClick={() => sendCommand("0")}
-                className="px-2 py-0.5 rounded-md bg-slate-600/10 text-slate-600 border border-slate-500/30 text-[11px] font-mono font-bold hover:bg-slate-600/20 cursor-pointer"
-              >
-                Lt1 OFF (0)
-              </button>
             </div>
 
             {/* Command Send Bar */}
-            <form onSubmit={handleFormSubmit} className="flex gap-1.5 pt-0.5">
+            <form onSubmit={handleFormSubmit} className="flex gap-1.5 pt-1">
               <input
                 type="text"
-                placeholder="Type command (1, 0, 2, 3, etc.)..."
                 value={inputCommand}
                 onChange={(e) => setInputCommand(e.target.value)}
-                className={`flex-1 rounded-md border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-blue-500 transition ${
+                placeholder="Type command ('F', 'B', 'L', 'R', 'S')..."
+                className={`flex-1 rounded-md px-2.5 py-1.5 text-xs font-mono border focus:outline-none focus:ring-1 focus:ring-blue-500 ${
                   isDark
-                    ? "bg-zinc-950 border-zinc-800 text-white placeholder-zinc-600"
-                    : "bg-slate-50 border-slate-300 text-slate-900 placeholder-slate-400"
+                    ? "bg-zinc-950 border-zinc-800 text-zinc-100 placeholder-zinc-500"
+                    : "bg-white border-slate-300 text-slate-800 placeholder-slate-400"
                 }`}
               />
               <button
@@ -1095,15 +1286,17 @@ export default function Home() {
                 disabled={!inputCommand.trim()}
                 className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50"
               >
-                Send
+                SEND
               </button>
             </form>
           </div>
         )}
 
-        {/* Footer */}
-        <footer className={`text-center text-[10px] pt-1 pb-2 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>
-          Bose remote • Arduino Nano Dual LED Controller (D2 & D3)
+        {/* Global Footer info */}
+        <footer className="text-center pt-2">
+          <p className={`text-[10px] font-mono ${isDark ? "text-zinc-500" : "text-slate-400"}`}>
+            Bose remote • 4WD RC Car Controller (4 Motors • L298N • Bluetooth)
+          </p>
         </footer>
       </div>
     </main>

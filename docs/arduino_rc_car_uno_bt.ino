@@ -1,6 +1,6 @@
 /*
   ========================================================================================
-  🏎️ 4WD RC SMART CAR - COMPLETE ARDUINO UNO + BLUETOOTH FIRMWARE
+  🏎️ 4WD RC SMART CAR - ARDUINO UNO + BLUETOOTH FIRMWARE (PURE 4-MOTOR CONTROL)
   ========================================================================================
   Controller Board:   Arduino Uno (or Nano with identical pinout)
   Wireless Receiver:  HC-05 Bluetooth Module (9600 Baud)
@@ -40,10 +40,6 @@
   • 4x TT DC Gear Motors (Wired in Parallel):
       - Left Front + Left Rear Motors   ---> L298N OUT1 & OUT2
       - Right Front + Right Rear Motors ---> L298N OUT3 & OUT4
-
-  • Optional Dual Headlights (Pins D2 & D11/D12):
-      - Headlight 1 (Left LED)  ---> Arduino Pin D2 (via 220Ω resistor)
-      - Headlight 2 (Right LED) ---> Arduino Pin D12 (via 220Ω resistor)
   ========================================================================================
 */
 
@@ -62,15 +58,12 @@ SoftwareSerial bt(3, 4); // RX = D3, TX = D4
 #define IN3 9  // Right Motors Forward
 #define IN4 10 // Right Motors Reverse
 
-// Optional Dual Headlight Pins
-#define LIGHT1 2  // Left Headlight LED
-#define LIGHT2 12 // Right Headlight LED (Optional)
-
 // --------------------------------------------------------------------------------------
 // 2. TIMING & SAFETY WATCHDOG
 // --------------------------------------------------------------------------------------
 unsigned long lastCmdTime = 0;
-const unsigned long SAFETY_TIMEOUT_MS = 400; // Auto-stop if no packet for 0.4s
+// Safety failsafe: If connection is lost or no command received for 2.5s while moving, auto-stop.
+const unsigned long SAFETY_TIMEOUT_MS = 2500;
 bool isMoving = false;
 
 // --------------------------------------------------------------------------------------
@@ -107,18 +100,12 @@ void setup() {
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
 
-  // Initialize Headlight Pins
-  pinMode(LIGHT1, OUTPUT);
-  pinMode(LIGHT2, OUTPUT);
-  digitalWrite(LIGHT1, LOW);
-  digitalWrite(LIGHT2, LOW);
-
   // Initialize Bluetooth Communication at 9600 Baud
   bt.begin(9600);
   
   // Initialize Hardware USB Serial for PC debugging
   Serial.begin(9600);
-  Serial.println(F("[RC CAR] Arduino Uno Initialized."));
+  Serial.println(F("[RC CAR] 4WD Arduino Uno Initialized."));
 
   // Ensure all motors start completely stopped
   drive(0, 0, 0, 0);
@@ -132,68 +119,45 @@ void loop() {
   // A. Read incoming Bluetooth commands
   while (bt.available()) {
     char c = bt.read();
-    lastCmdTime = millis(); // Refresh watchdog timer on every command packet
+    lastCmdTime = millis(); // Refresh watchdog timer on every received command
 
     switch (c) {
-      // Motion Driving Commands (Streamed from Bose Remote D-Pad)
-      case 'F': // Drive Forward
+      // Motion Driving Commands (4 Motors Only)
+      case 'F': // Drive Forward (All 4 Motors Forward)
         drive(1, 0, 1, 0);
+        bt.println(F("MOTORS: FWD"));
         break;
 
-      case 'B': // Drive Backward (Reverse)
+      case 'B': // Drive Backward (All 4 Motors Reverse)
         drive(0, 1, 0, 1);
+        bt.println(F("MOTORS: REV"));
         break;
 
-      case 'L': // Spin Left (Left reverse, Right forward)
+      case 'L': // Turn Left (Left Reverse, Right Forward)
         drive(0, 1, 1, 0);
+        bt.println(F("MOTORS: LEFT"));
         break;
 
-      case 'R': // Spin Right (Left forward, Right reverse)
+      case 'R': // Turn Right (Left Forward, Right Reverse)
         drive(1, 0, 0, 1);
+        bt.println(F("MOTORS: RIGHT"));
         break;
 
-      case 'S': // Electronic Brake / Full Stop
+      case 'S': // Electronic Brake / Full Stop (All 4 Motors OFF)
         drive(0, 0, 0, 0);
+        bt.println(F("MOTORS: STOP"));
         break;
 
-      // Lighting Commands (from Bose Remote Light Buttons)
-      case '1': // Light 1 ON
-        digitalWrite(LIGHT1, HIGH);
-        bt.println(F("LT1: ON"));
-        break;
-
-      case '0': // Light 1 OFF
-        digitalWrite(LIGHT1, LOW);
-        bt.println(F("LT1: OFF"));
-        break;
-
-      case '2': // Light 2 ON
-        digitalWrite(LIGHT2, HIGH);
-        bt.println(F("LT2: ON"));
-        break;
-
-      case '3': // Light 2 OFF
-        digitalWrite(LIGHT2, LOW);
-        bt.println(F("LT2: OFF"));
-        break;
-
-      case 'W': // Master Both Lights ON
-        digitalWrite(LIGHT1, HIGH);
-        digitalWrite(LIGHT2, HIGH);
-        bt.println(F("LIGHTS: ALL ON"));
-        break;
-
-      case 'w': // Master Both Lights OFF
-        digitalWrite(LIGHT1, LOW);
-        digitalWrite(LIGHT2, LOW);
-        bt.println(F("LIGHTS: ALL OFF"));
+      default:
+        // Ignore linefeeds or carriage returns
         break;
     }
   }
 
-  // B. Safety Watchdog: Auto-Brake after 0.4 seconds of no signal
-  // Prevents the RC car from running away if Bluetooth drops or user releases button
+  // B. Safety Watchdog: Auto-Brake if Bluetooth signal is completely lost for 2.5s
+  // Prevents runaway car if user drives out of Bluetooth range
   if (isMoving && (millis() - lastCmdTime > SAFETY_TIMEOUT_MS)) {
     drive(0, 0, 0, 0);
+    bt.println(F("WATCHDOG: SAFE STOP"));
   }
 }
